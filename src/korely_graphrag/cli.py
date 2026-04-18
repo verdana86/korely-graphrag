@@ -61,11 +61,16 @@ def stats() -> None:
     """Print stats about the current knowledge base."""
     from sqlalchemy import func, select
 
-    from .storage import Chunk, Entity, Item, Mention, healthcheck, session_scope
+    from .storage import Chunk, Entity, Item, Mention, healthcheck, init_db, session_scope
 
     if not healthcheck():
         click.echo("ERROR: cannot connect to the database.", err=True)
+        click.echo("Hint: is Postgres running? `docker compose up -d db`", err=True)
         raise SystemExit(1)
+
+    # Ensure the schema exists (idempotent). On fresh installs, `stats` before
+    # `ingest` used to crash with "relation items does not exist".
+    init_db(drop_first=False)
 
     with session_scope() as s:
         out = {
@@ -80,6 +85,8 @@ def stats() -> None:
             ).scalar_one(),
         }
     click.echo(json.dumps(out, indent=2))
+    if out["items"] == 0:
+        click.echo("\n(empty — run `korely-graphrag ingest <path>` to add notes)")
 
 
 @main.command()

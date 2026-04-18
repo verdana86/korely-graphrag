@@ -36,12 +36,19 @@ git clone https://github.com/verdana86/korely-graphrag
 cd korely-graphrag
 
 cp .env.example .env
-# edit .env: set GEMINI_API_KEY (free tier works)
+# edit .env: set GEMINI_API_KEY (free tier works — get one at aistudio.google.com)
 
-docker compose up -d        # Postgres + pgvector + app
+# Tell docker-compose where your markdown notes live.
+# Either copy them into ./notes, or point HOST_NOTES_PATH at your real vault:
+export HOST_NOTES_PATH=~/my-notes    # or any absolute path to a directory of *.md
 
-# Ingest your markdown
-docker compose exec app korely-graphrag ingest ~/Notes
+docker compose up -d                  # Postgres + pgvector + app container
+
+# Ingest. Inside the container your notes are mounted at /notes (read-only).
+docker compose exec app korely-graphrag ingest /notes
+
+# Check what got indexed
+docker compose exec app korely-graphrag stats
 
 # Start MCP server
 docker compose exec app korely-graphrag serve
