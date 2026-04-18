@@ -52,25 +52,30 @@ Then point your MCP client (Claude Code, Cursor, etc.) at `http://localhost:8080
 
 ## Architecture
 
-```
-markdown files
-    ↓ (chunker + embedder + entity extractor)
-Postgres + pgvector
-    ├─ chunks (text + 1536d vectors)
-    ├─ entities (people, orgs, concepts, ...)
-    └─ mentions (which chunk mentions which entity)
-    ↓
-MCP server (5 read tools)
-    ├─ search        — hybrid FTS + vector
-    ├─ read_item     — full content
-    ├─ get_related   — graph traversal via shared entities
-    ├─ list_notes    — paginated browse
-    └─ list_folders  — vault structure
-    ↓
-any MCP client (Claude Code, Cursor, Claude Desktop, n8n, ...)
+```mermaid
+flowchart LR
+    MD[Markdown files] -->|chunk + embed<br/>+ entity extract| DB[(Postgres<br/>+ pgvector)]
+    DB --> S[search]
+    DB --> R[read_item]
+    DB --> GR[get_related<br/>via entity graph]
+    DB --> LN[list_notes]
+    DB --> LF[list_folders]
+    S & R & GR & LN & LF --> MCP{{MCP server<br/>SSE}}
+    MCP --> CC[Claude Code]
+    MCP --> CU[Cursor]
+    MCP --> CD[Claude Desktop]
+    MCP --> N8N[n8n / ChatGPT]
+
+    style GR fill:#d6ffdd,stroke:#2b8a3e,stroke-width:2px
+    style MCP fill:#eef6ff,stroke:#1c7ed6
 ```
 
-Full details in [ARCHITECTURE.md](ARCHITECTURE.md).
+The killer feature is `get_related` — given a note, it surfaces other notes
+that share *entities* (people, technologies, concepts) rather than keywords.
+Everything else is standard hybrid RAG served through MCP.
+
+Full details in [ARCHITECTURE.md](ARCHITECTURE.md) — 3 more diagrams inside
+covering ingest, query, and graph-traversal pipelines.
 
 ## Requirements
 
