@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.db
+notes/
+benchmark/data/
+.DS_Store
+.idea/
+.vscode/
+
+# Benchmark corpora (fetched by scripts, not committed)
+benchmark/karpathy/
+benchmark/karpathy-small/
+benchmark/data/

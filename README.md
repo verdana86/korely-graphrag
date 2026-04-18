@@ -1,0 +1,105 @@
+# korely-graphrag
+
+> A second brain for your markdown notes — with an entity graph that finds the connections you didn't write down.
+
+**Status:** early preview · single-user · CLI-first · Apache 2.0
+
+---
+
+## What it is
+
+`korely-graphrag` is the open-source extraction of the retrieval engine that powers [Korely](https://korely.com): an MCP-compatible second brain that goes beyond vanilla RAG by automatically extracting and indexing entities (people, organizations, technologies, concepts) from your notes, then surfacing related items through a knowledge graph.
+
+Plug it into Claude Code, Cursor, Claude Desktop, or any MCP client and ask questions about your notes — including questions like *"what else mentions X?"* that flat-file memory and chunk-based RAG can't answer well.
+
+## Why another RAG tool?
+
+There are a lot of "second brain with LLM" projects right now. Most of them stop at: chunk markdown → embed → cosine search → return top-k. That's fine for "find me the note about X", but it falls apart when you want to *discover* connections.
+
+`korely-graphrag` adds a layer most don't:
+
+| Layer | Vanilla RAG | Claude Code memory | korely-graphrag |
+|---|---|---|---|
+| Keyword + vector search | yes | partial | yes |
+| Auto entity extraction | no | no | **yes** |
+| Graph traversal across notes | no | no | **yes** |
+| MCP-native (any client) | varies | n/a | **yes** |
+
+Inspired in spirit by [Karpathy's LLM Wiki gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f), but built around an automatic entity graph instead of a hand-curated wiki.
+
+See [BENCHMARK.md](BENCHMARK.md) for honest numbers vs alternatives.
+
+## Quickstart
+
+```bash
+git clone https://github.com/verdana86/korely-graphrag
+cd korely-graphrag
+
+cp .env.example .env
+# edit .env: set GEMINI_API_KEY (free tier works)
+
+docker compose up -d        # Postgres + pgvector + app
+
+# Ingest your markdown
+docker compose exec app korely-graphrag ingest ~/Notes
+
+# Start MCP server
+docker compose exec app korely-graphrag serve
+# MCP available at http://localhost:8080/sse
+```
+
+Then point your MCP client (Claude Code, Cursor, etc.) at `http://localhost:8080/sse` and ask questions about your notes.
+
+## Architecture
+
+```
+markdown files
+    ↓ (chunker + embedder + entity extractor)
+Postgres + pgvector
+    ├─ chunks (text + 1536d vectors)
+    ├─ entities (people, orgs, concepts, ...)
+    └─ mentions (which chunk mentions which entity)
+    ↓
+MCP server (5 read tools)
+    ├─ search        — hybrid FTS + vector
+    ├─ read_item     — full content
+    ├─ get_related   — graph traversal via shared entities
+    ├─ list_notes    — paginated browse
+    └─ list_folders  — vault structure
+    ↓
+any MCP client (Claude Code, Cursor, Claude Desktop, n8n, ...)
+```
+
+Full details in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Requirements
+
+- Docker + Docker Compose (recommended path)
+- A Gemini API key — get one free at [aistudio.google.com](https://aistudio.google.com)
+
+Or, if you prefer manual setup:
+- Python 3.11+
+- PostgreSQL 15+ with `pgvector` extension
+
+## Roadmap
+
+- [x] Apache 2.0 release
+- [x] Gemini provider
+- [x] 5 MCP read tools
+- [x] CLI ingest / serve / stats
+- [ ] **Ollama provider — 100% local mode** (planned)
+- [ ] Incremental re-ingest (only changed files)
+- [ ] Web UI for browsing the graph
+- [ ] Obsidian plugin
+
+## Contributing
+
+This is an early preview. Issues and PRs welcome, but no SLA — this is a side project. Please open an issue before starting any large change.
+
+## Relationship to Korely
+
+`korely-graphrag` is a self-contained extraction of the retrieval core used by Korely (the commercial product). The full Korely product adds: web UI, meeting recording + transcription, multi-user collaboration, billing, and a richer chat pipeline. If you want all that, see [korely.com](https://korely.com). If you just want a strong MCP-backed second brain on your own machine, this repo is for you.
+
+## License
+
+[Apache 2.0](LICENSE) — do what you want, including commercial use. See LICENSE for the full text.

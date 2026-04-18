@@ -1,0 +1,35 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: korely
+      POSTGRES_PASSWORD: korely
+      POSTGRES_DB: korely_graphrag
+    ports:
+      - "5433:5432"
+    volumes:
+      - korely_graphrag_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U korely -d korely_graphrag"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://korely:korely@db:5432/korely_graphrag
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+    volumes:
+      - ./:/app
+      - ${HOST_NOTES_PATH:-./notes}:/notes:ro
+    ports:
+      - "8080:8080"
+    command: ["sleep", "infinity"]
+
+volumes:
+  korely_graphrag_data:
