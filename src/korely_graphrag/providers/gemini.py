@@ -71,6 +71,11 @@ class GeminiProvider(BaseProvider):
             max_output_tokens=max_tokens,
             temperature=temperature,
             response_mime_type="application/json" if json_mode else "text/plain",
+            # Gemini 2.5 Flash defaults to internal "thinking" that consumes
+            # output tokens before the actual response. For structured JSON
+            # extraction we don't want that — disable to get deterministic,
+            # token-efficient completions.
+            thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
         )
         resp = _retry_on_429(lambda: self._client.models.generate_content(
             model=self._chat_model,

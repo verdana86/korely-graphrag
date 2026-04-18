@@ -303,6 +303,34 @@ def test_substring_dedup_does_not_merge_across_types():
         assert len(persons) >= 1
 
 
+def test_tsquery_sanitization_handles_punctuation():
+    """Previously, queries with punctuation (e.g. "PyTorch," or "`<b>`") broke
+    to_tsquery with a syntax error. After fix, only alphanumeric tokens survive.
+    """
+    from korely_graphrag.search.hybrid import _sanitize_tsquery_terms
+
+    assert _sanitize_tsquery_terms("PyTorch, Adam (M1) CPU?") == ["PyTorch", "Adam", "M1", "CPU"]
+    assert _sanitize_tsquery_terms("`<b>` tag Twitter's DOM") == ["tag", "Twitter", "DOM"]
+    assert _sanitize_tsquery_terms("   ") == []
+    # 1-char tokens dropped, the rest kept
+    assert _sanitize_tsquery_terms("a X b of is") == ["of", "is"]
+    # Basic query still works
+    assert _sanitize_tsquery_terms("recurrent neural networks") == ["recurrent", "neural", "networks"]
+
+
+def test_hybrid_search_survives_punctuation_query():
+    """Integration: hybrid_search must not crash on punctuation-heavy queries.
+    Previously raised psycopg2 SyntaxError on tsquery.
+    """
+    init_db(drop_first=True)
+    from korely_graphrag.search.hybrid import hybrid_search
+
+    fp = FakeProvider()
+    with session_scope() as s:
+        hits = hybrid_search("PostgreSQL, (M1)! pgvector?", session=s, limit=5, provider=fp)
+        assert isinstance(hits, list)  # empty ok, crash not ok
+
+
 def test_hub_filter_floor_protects_tiny_corpora():
     """In a 2-doc corpus, 50% threshold would collapse to 1 doc; the floor of
     2 docs preserves entities that show up in both.

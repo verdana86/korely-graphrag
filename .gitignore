@@ -20,3 +20,8 @@ benchmark/data/
 benchmark/karpathy/
 benchmark/karpathy-small/
 benchmark/data/
+
+# Benchmark run artefacts (generated, not committed)
+benchmark/questions.jsonl
+benchmark/questions_for_review.md
+benchmark/results.jsonl

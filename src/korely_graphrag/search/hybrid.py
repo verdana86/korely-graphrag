@@ -12,6 +12,7 @@ RRF reference:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -25,6 +26,18 @@ from ..storage.models import Chunk, Item
 logger = logging.getLogger(__name__)
 
 RRF_K = 60
+
+# Keep only alphanumerics + underscore in tsquery terms. Any other char
+# (punctuation, quotes, parens) is a syntax error for to_tsquery().
+_TSQUERY_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
+
+
+def _sanitize_tsquery_terms(query: str) -> list[str]:
+    """Extract alphanumeric tokens from a free-form query, suitable for to_tsquery.
+
+    Drops stopword-like fragments (len < 2) to avoid noise from "a", "of", etc.
+    """
+    return [t for t in _TSQUERY_TOKEN_RE.findall(query) if len(t) >= 2]
 
 
 @dataclass
@@ -49,9 +62,9 @@ def _fts_chunk_ranking(session: Session, query: str, limit: int) -> list[tuple[s
     """Return [(chunk_id, item_id, rank)] from FTS, best rank first."""
     if not query.strip():
         return []
-    # Build a tsquery: split on whitespace, AND-join with prefix matching.
-    # 'simple' config matches our generated column.
-    terms = [w for w in query.split() if w.strip()]
+    # Build a tsquery: sanitize to alphanumeric tokens, AND-join with prefix
+    # matching. 'simple' config matches our generated column.
+    terms = _sanitize_tsquery_terms(query)
     if not terms:
         return []
     tsquery = " & ".join(f"{w}:*" for w in terms)
