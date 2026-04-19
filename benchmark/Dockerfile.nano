@@ -1,0 +1,21 @@
+FROM python:3.10-slim
+
+WORKDIR /bench
+
+# nano-graphrag pulls graspologic -> gensim==3.8.3, which uses deprecated
+# CPython internals (longintrepr.h) removed in Python 3.11+. Pinning to
+# 3.10 lets pip grab the pre-built gensim wheels from PyPI instead of
+# trying to compile from source. This container exists purely to run the
+# vs-nano-graphrag comparison benchmark — don't use it for anything else.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip install --no-cache-dir \
+      "nano-graphrag>=0.0.8,<0.1" \
+      "json-repair>=0.30" \
+      "google-genai>=0.3.0" \
+      "python-dotenv>=1.0"
+
+# Benchmark scripts are bind-mounted at runtime (see docker-compose.yml).
+ENV PYTHONUNBUFFERED=1
+CMD ["python", "-c", "import nano_graphrag; print('nano-graphrag', nano_graphrag.__version__ if hasattr(nano_graphrag, \"__version__\") else 'installed')"]

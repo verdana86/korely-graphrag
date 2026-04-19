@@ -34,6 +34,13 @@ QUESTIONS_PATH = Path("/app/benchmark/questions.jsonl")
 RESULTS_PATH = Path("/app/benchmark/results.jsonl")
 REPORT_PATH = Path("/app/BENCHMARK.md")
 
+# Optional third system: nano-graphrag. Its predictions are generated
+# out-of-band by `run_nano.py` inside the isolated `nano` docker service
+# (nano pulls in graspologic/gensim which conflict with our main image).
+# If the file exists, we join its predictions in as a third column.
+NANO_PREDICTIONS_PATH = Path("/app/benchmark/nano_predictions.jsonl")
+NANO_TITLE_MAP_PATH = Path("/app/benchmark/bench_nano/title_to_docid.json")
+
 
 # ---------------------------------------------------------------------------
 # Systems under test
@@ -121,6 +128,30 @@ SYSTEMS = {
 }
 
 
+def _load_nano() -> dict[int, dict] | None:
+    """Load pre-computed nano-graphrag predictions if present.
+
+    nano doesn't run in this container (dep conflict), so predictions
+    come from `benchmark/run_nano.py` executed in the isolated `nano`
+    compose service. We join them in here by question id.
+
+    Returns None when the artifacts are missing — benchmark still runs
+    the 2-system (vanilla vs graphrag) comparison unaffected.
+    """
+    if not NANO_PREDICTIONS_PATH.exists() or not NANO_TITLE_MAP_PATH.exists():
+        return None
+    records = [json.loads(l) for l in NANO_PREDICTIONS_PATH.read_text().splitlines() if l.strip()]
+    title_to_docid = json.loads(NANO_TITLE_MAP_PATH.read_text())
+    docid_to_title = {v: k for k, v in title_to_docid.items()}
+    by_id = {}
+    for r in records:
+        # Convert nano doc-hashes -> titles for title-space comparison
+        r["predicted_titles"] = [docid_to_title.get(d) for d in r.get("predicted", [])]
+        r["predicted_titles"] = [t for t in r["predicted_titles"] if t]
+        by_id[r["id"]] = r
+    return by_id
+
+
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
@@ -151,7 +182,16 @@ def hit_at_k(predicted: list[str], truth: set[str], k: int) -> int:
 def main():
     questions = [json.loads(l) for l in QUESTIONS_PATH.read_text().splitlines()]
     results = []
+    nano_predictions = _load_nano()
+    if nano_predictions is not None:
+        print(
+            f"[nano] joining {len(nano_predictions)} pre-computed predictions",
+            file=sys.stderr,
+        )
 
+    # For nano, metrics are computed in title-space (its doc IDs are md5
+    # hashes independent of our korely UUIDs). Every question must carry
+    # ground_truth_titles for this to work.
     for q in questions:
         truth = set(q["ground_truth"])
         row: dict = {"id": q["id"], "type": q["type"], "question": q["question"]}
@@ -167,11 +207,36 @@ def main():
             row[f"{sys_name}_p@5"] = precision_at_k(predicted, truth, 5)
             row[f"{sys_name}_r@5"] = recall_at_k(predicted, truth, 5)
             row[f"{sys_name}_hit@5"] = hit_at_k(predicted, truth, 5)
+
+        if nano_predictions is not None:
+            rec = nano_predictions.get(q["id"])
+            if rec:
+                title_truth = set(q.get("ground_truth_titles") or [])
+                pred_titles = rec["predicted_titles"]
+                row["nano_predicted"] = rec.get("predicted", [])[:10]
+                row["nano_predicted_titles"] = pred_titles[:10]
+                row["nano_latency_s"] = rec.get("latency_s", 0.0)
+                row["nano_p@1"] = precision_at_k(pred_titles, title_truth, 1)
+                row["nano_p@5"] = precision_at_k(pred_titles, title_truth, 5)
+                row["nano_r@5"] = recall_at_k(pred_titles, title_truth, 5)
+                row["nano_hit@5"] = hit_at_k(pred_titles, title_truth, 5)
+            else:
+                # Question missing from nano set — record zeros so aggregates don't crash
+                for m in ("p@1", "p@5", "r@5", "hit@5"):
+                    row[f"nano_{m}"] = 0
+                row["nano_latency_s"] = 0.0
+                row["nano_predicted"] = []
+
         results.append(row)
+        _nano_str = (
+            f" | nano p@1={row.get('nano_p@1', 0):.0f} hit@5={row.get('nano_hit@5', 0)}"
+            if nano_predictions is not None else ""
+        )
         print(
             f"Q{q['id']:3d} ({q['type']:12s}): "
             f"vanilla p@1={row['vanilla_p@1']:.0f} hit@5={row['vanilla_hit@5']} | "
-            f"graphrag p@1={row['graphrag_p@1']:.0f} hit@5={row['graphrag_hit@5']}",
+            f"graphrag p@1={row['graphrag_p@1']:.0f} hit@5={row['graphrag_hit@5']}"
+            f"{_nano_str}",
             file=sys.stderr,
         )
 
@@ -186,6 +251,16 @@ def main():
     print(f"Saved: {REPORT_PATH}", file=sys.stderr)
 
 
+def _detect_systems(results: list[dict]) -> list[str]:
+    """Which system columns exist in the result rows — detects nano dynamically."""
+    if not results:
+        return list(SYSTEMS.keys())
+    systems = list(SYSTEMS.keys())
+    if "nano_p@1" in results[0]:
+        systems.append("nano")
+    return systems
+
+
 def _aggregate(results: list[dict]) -> dict:
     by_type = {}
     for r in results:
@@ -193,11 +268,13 @@ def _aggregate(results: list[dict]) -> dict:
         by_type.setdefault(t, []).append(r)
 
     def _agg(rows, key):
-        vals = [r[key] for r in rows]
+        vals = [r.get(key, 0) for r in rows]
         return {"mean": round(mean(vals), 3), "median": round(median(vals), 3), "n": len(vals)}
 
-    agg = {"overall": {}, "by_type": {}}
-    for sys_name in SYSTEMS.keys():
+    systems = _detect_systems(results)
+
+    agg = {"overall": {}, "by_type": {}, "_systems": systems}
+    for sys_name in systems:
         agg["overall"][sys_name] = {
             "p@1": _agg(results, f"{sys_name}_p@1"),
             "p@5": _agg(results, f"{sys_name}_p@5"),
@@ -207,7 +284,7 @@ def _aggregate(results: list[dict]) -> dict:
         }
     for t, rows in by_type.items():
         agg["by_type"][t] = {}
-        for sys_name in SYSTEMS.keys():
+        for sys_name in systems:
             agg["by_type"][t][sys_name] = {
                 "p@1": _agg(rows, f"{sys_name}_p@1"),
                 "p@5": _agg(rows, f"{sys_name}_p@5"),
@@ -220,7 +297,10 @@ def _aggregate(results: list[dict]) -> dict:
 
 def _write_report(agg: dict, results: list[dict]):
     lines = []
-    lines.append("# Benchmark — korely-graphrag vs vanilla RAG")
+    if "nano" in agg.get("_systems", []):
+        lines.append("# Benchmark — korely-graphrag vs vanilla RAG vs nano-graphrag")
+    else:
+        lines.append("# Benchmark — korely-graphrag vs vanilla RAG")
     lines.append("")
     lines.append("**Corpus:** 24 public blog posts from Andrej Karpathy's github.io")
     lines.append("(reproducible: `git clone https://github.com/karpathy/karpathy.github.io`).")
@@ -247,6 +327,9 @@ def _write_report(agg: dict, results: list[dict]):
     lines.append("  neural networks\" doesn't. See `benchmark/related_ground_truth.json` for the")
     lines.append("  full audit trail.")
     lines.append("")
+    systems = agg.get("_systems", ["vanilla", "graphrag"])
+    has_nano = "nano" in systems
+
     lines.append("**Systems under test:**")
     lines.append("- `vanilla` — FTS + pgvector + RRF over the *same* chunks and embeddings,")
     lines.append("  with **no entity graph** and no IDF weighting. This is the default you get")
@@ -258,37 +341,54 @@ def _write_report(agg: dict, results: list[dict]):
     lines.append("  filtering for `related`, **plus** a pgvector semantic fallback that fills")
     lines.append("  remaining slots when graph-derived hits are sparse (typical for \"island\"")
     lines.append("  posts with unique named entities — e.g. short fiction).")
+    if has_nano:
+        lines.append("- `nano` — [nano-graphrag](https://github.com/gusye1234/nano-graphrag)")
+        lines.append("  (v0.0.8) with a Gemini adapter (LLM + embeddings). Same corpus, same")
+        lines.append("  embedding model, same entity-extraction LLM. Search uses nano's chunk")
+        lines.append("  vector DB (closest to its `naive` RAG mode). **nano-graphrag has no")
+        lines.append("  `get_related(doc)` primitive**, so we approximate it by traversing the")
+        lines.append("  entity graph that nano itself builds during ingestion — for each seed")
+        lines.append("  doc we collect its entities, then rank other docs by count of shared")
+        lines.append("  entities. No IDF, no hub filtering — this is nano's graph as-is.")
     lines.append("")
-    lines.append("Both systems use identical Gemini models: `gemini-embedding-001` (1536d)")
-    lines.append("for embeddings, `gemini-2.5-flash` for entity extraction (only graphrag")
-    lines.append("uses it). Cost per query is essentially identical (both do one embedding call).")
-    lines.append("Ingestion is higher for graphrag (one extra Gemini call per doc for entity")
-    lines.append("extraction) but amortizes as a one-time cost.")
+    lines.append("All systems use identical Gemini models: `gemini-embedding-001` (1536d)")
+    lines.append("for embeddings, `gemini-2.5-flash` for entity extraction.")
+    if has_nano:
+        lines.append("Costs per query are comparable (one embedding call each). nano-graphrag's")
+        lines.append("ingest is noticeably heavier — it pays for community-report generation up")
+        lines.append("front so its `global` mode can summarise themes, a feature this benchmark")
+        lines.append("does not exercise.")
+    else:
+        lines.append("Cost per query is essentially identical (both do one embedding call).")
+        lines.append("Ingestion is higher for graphrag (one extra Gemini call per doc for entity")
+        lines.append("extraction) but amortizes as a one-time cost.")
     lines.append("")
     lines.append("## Overall results")
     lines.append("")
-    lines.append("| metric | vanilla (mean) | graphrag (mean) | Δ |")
-    lines.append("|---|---:|---:|---:|")
+
+    def _row_for(block: dict, metric: str) -> str:
+        cells = [f"{block[s][metric]['mean']:.3f}" for s in systems]
+        return "| " + metric + " | " + " | ".join(cells) + " |"
+
+    header = "| metric | " + " | ".join(f"{s} (mean)" for s in systems) + " |"
+    sep = "|---" + "|---:" * len(systems) + "|"
+    lines.append(header)
+    lines.append(sep)
     for m in ("p@1", "p@5", "r@5", "hit@5", "latency_s"):
-        v = agg["overall"]["vanilla"][m]["mean"]
-        g = agg["overall"]["graphrag"][m]["mean"]
-        delta = g - v
-        lines.append(f"| {m} | {v:.3f} | {g:.3f} | {'+' if delta >= 0 else ''}{delta:.3f} |")
+        lines.append(_row_for(agg["overall"], m))
     lines.append("")
 
     lines.append("## Breakdown by question type")
     lines.append("")
-    for qtype, systems in agg["by_type"].items():
-        n = systems["vanilla"]["p@1"]["n"]
+    for qtype, block in agg["by_type"].items():
+        n = block[systems[0]]["p@1"]["n"]
         lines.append(f"### {qtype} ({n} questions)")
         lines.append("")
-        lines.append("| metric | vanilla | graphrag | Δ |")
-        lines.append("|---|---:|---:|---:|")
+        lines.append("| metric | " + " | ".join(systems) + " |")
+        lines.append("|---" + "|---:" * len(systems) + "|")
         for m in ("p@1", "p@5", "r@5", "hit@5", "latency_s"):
-            v = systems["vanilla"][m]["mean"]
-            g = systems["graphrag"][m]["mean"]
-            delta = g - v
-            lines.append(f"| {m} | {v:.3f} | {g:.3f} | {'+' if delta >= 0 else ''}{delta:.3f} |")
+            cells = [f"{block[s][m]['mean']:.3f}" for s in systems]
+            lines.append(f"| {m} | " + " | ".join(cells) + " |")
         lines.append("")
 
     # ------------------------------------------------------------------
@@ -344,6 +444,42 @@ def _write_report(agg: dict, results: list[dict]):
         lines.append("reproducible and we'd welcome pull requests extending it.")
         lines.append("")
 
+        if has_nano:
+            n_p1 = rel["nano"]["p@1"]["mean"]
+            n_p5 = rel["nano"]["p@5"]["mean"]
+            n_r5 = rel["nano"]["r@5"]["mean"]
+            n_h5 = rel["nano"]["hit@5"]["mean"]
+            n_lat = rel["nano"]["latency_s"]["mean"]
+            lines.append("## nano-graphrag — how it compares")
+            lines.append("")
+            lines.append("nano-graphrag is the closest open-source neighbor of this project:")
+            lines.append("minimal Python, entity graph auto-built at ingest, designed for LLM")
+            lines.append("workflows. It's an honest apples-to-apples reference point.")
+            lines.append("")
+            lines.append("On the same corpus with the same Gemini models:")
+            lines.append("")
+            lines.append(f"- **Related p@1**: nano {n_p1:.0%} vs korely-graphrag {g_p1:.0%} vs vanilla {v_p1:.0%}.")
+            lines.append(f"- **Related r@5**: nano {n_r5:.0%} vs korely-graphrag {g_r5:.0%} vs vanilla {v_r5:.0%}.")
+            lines.append(f"- **Related hit@5**: nano {n_h5:.0%} vs korely-graphrag {g_h5:.0%} vs vanilla {v_h5:.0%}.")
+            lines.append(f"- **Related latency**: nano {n_lat*1000:.0f} ms vs korely-graphrag {g_lat*1000:.0f} ms vs vanilla {v_lat*1000:.0f} ms.")
+            lines.append("")
+            lines.append("**Caveats on this comparison.**")
+            lines.append("")
+            lines.append("- nano-graphrag has **no `get_related(doc)` primitive**. The number you")
+            lines.append("  see is from our own DIY traversal of nano's internal networkx graph —")
+            lines.append("  we collect the seed doc's entities, then rank other docs by count of")
+            lines.append("  shared entities. No IDF, no hub-node filtering. A user who wants this")
+            lines.append("  on nano-graphrag today would have to write similar code.")
+            lines.append("- For non-related queries (precision@1, recall@5) nano uses its chunk")
+            lines.append("  vector DB directly (closest to its `naive` RAG mode), which is the")
+            lines.append("  pure-vector half of vanilla's stack — no FTS. Any gap on those rows")
+            lines.append("  reflects the FTS contribution, not graph quality.")
+            lines.append("- nano-graphrag's ingest also runs community-report generation (used")
+            lines.append("  by its `global` mode for theme summarisation). This benchmark does")
+            lines.append("  not exercise that feature, so nano pays an ingest-time cost for")
+            lines.append("  capability we don't measure. Fair to it to say so upfront.")
+            lines.append("")
+
     # Example failure cases: where one system wins dramatically over the other
     lines.append("## Notable cases")
     lines.append("")
@@ -381,9 +517,17 @@ def _write_report(agg: dict, results: list[dict]):
     lines.append("# fetch Karpathy corpus")
     lines.append("git clone --depth 1 https://github.com/karpathy/karpathy.github.io /tmp/kb")
     lines.append("mkdir -p benchmark/karpathy && cp /tmp/kb/_posts/*.markdown benchmark/karpathy/")
-    lines.append("# ingest + benchmark")
+    lines.append("# ingest + 2-system benchmark (vanilla vs korely-graphrag)")
     lines.append("docker compose run --rm app korely-graphrag ingest --reset /app/benchmark/karpathy")
     lines.append("docker compose run --rm app python /app/benchmark/run_benchmark.py")
+    if has_nano:
+        lines.append("")
+        lines.append("# optional 3rd column: nano-graphrag on the same corpus")
+        lines.append("docker compose --profile benchmark build nano")
+        lines.append("docker compose --profile benchmark run --rm nano python ingest_nano.py")
+        lines.append("docker compose --profile benchmark run --rm nano python run_nano.py")
+        lines.append("# re-run the main benchmark — it auto-joins nano_predictions.jsonl")
+        lines.append("docker compose run --rm app python /app/benchmark/run_benchmark.py")
     lines.append("```")
 
     REPORT_PATH.write_text("\n".join(lines))

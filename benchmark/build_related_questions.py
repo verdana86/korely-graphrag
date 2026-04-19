@@ -44,6 +44,10 @@ def main():
             "type": "related",
             "question": f"Which posts are thematically related to \"{seed['seed_title']}\"?",
             "ground_truth": related_ids,
+            # ground_truth_titles is what lets cross-system benchmarks (e.g.
+            # nano-graphrag, which hashes doc IDs differently) resolve the
+            # truth set via a shared title bridge.
+            "ground_truth_titles": seed.get("related_titles", []),
             "seed_item_id": seed["seed_id"],
             "seed_item_title": seed["seed_title"],
             "ground_truth_source": "human_reviewed_gemini_candidates",

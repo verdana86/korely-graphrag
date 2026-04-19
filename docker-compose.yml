@@ -31,5 +31,20 @@ services:
       - "8080:8080"
     command: ["sleep", "infinity"]
 
+  # Isolated image for the vs-nano-graphrag benchmark. Kept separate because
+  # nano-graphrag pulls in graspologic->gensim 3.8.3 which needs an older
+  # numpy and blows up the main app image. Only needed to run the comparison.
+  nano:
+    build:
+      context: .
+      dockerfile: benchmark/Dockerfile.nano
+    profiles: ["benchmark"]
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    volumes:
+      - ./benchmark:/bench
+    working_dir: /bench
+    command: ["sleep", "infinity"]
+
 volumes:
   korely_graphrag_data:

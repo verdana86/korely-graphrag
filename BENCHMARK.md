@@ -1,4 +1,4 @@
-# Benchmark — korely-graphrag vs vanilla RAG
+# Benchmark — korely-graphrag vs vanilla RAG vs nano-graphrag
 
 **Corpus:** 24 public blog posts from Andrej Karpathy's github.io
 (reproducible: `git clone https://github.com/karpathy/karpathy.github.io`).
@@ -31,54 +31,63 @@
   filtering for `related`, **plus** a pgvector semantic fallback that fills
   remaining slots when graph-derived hits are sparse (typical for "island"
   posts with unique named entities — e.g. short fiction).
+- `nano` — [nano-graphrag](https://github.com/gusye1234/nano-graphrag)
+  (v0.0.8) with a Gemini adapter (LLM + embeddings). Same corpus, same
+  embedding model, same entity-extraction LLM. Search uses nano's chunk
+  vector DB (closest to its `naive` RAG mode). **nano-graphrag has no
+  `get_related(doc)` primitive**, so we approximate it by traversing the
+  entity graph that nano itself builds during ingestion — for each seed
+  doc we collect its entities, then rank other docs by count of shared
+  entities. No IDF, no hub filtering — this is nano's graph as-is.
 
-Both systems use identical Gemini models: `gemini-embedding-001` (1536d)
-for embeddings, `gemini-2.5-flash` for entity extraction (only graphrag
-uses it). Cost per query is essentially identical (both do one embedding call).
-Ingestion is higher for graphrag (one extra Gemini call per doc for entity
-extraction) but amortizes as a one-time cost.
+All systems use identical Gemini models: `gemini-embedding-001` (1536d)
+for embeddings, `gemini-2.5-flash` for entity extraction.
+Costs per query are comparable (one embedding call each). nano-graphrag's
+ingest is noticeably heavier — it pays for community-report generation up
+front so its `global` mode can summarise themes, a feature this benchmark
+does not exercise.
 
 ## Overall results
 
-| metric | vanilla (mean) | graphrag (mean) | Δ |
+| metric | vanilla (mean) | graphrag (mean) | nano (mean) |
 |---|---:|---:|---:|
-| p@1 | 0.653 | 0.778 | +0.125 |
-| p@5 | 0.264 | 0.281 | +0.017 |
-| r@5 | 0.871 | 0.911 | +0.040 |
-| hit@5 | 0.958 | 0.986 | +0.028 |
-| latency_s | 0.456 | 0.374 | -0.082 |
+| p@1 | 0.653 | 0.778 | 0.681 |
+| p@5 | 0.264 | 0.281 | 0.211 |
+| r@5 | 0.871 | 0.911 | 0.780 |
+| hit@5 | 0.958 | 0.986 | 0.903 |
+| latency_s | 0.375 | 0.264 | 0.222 |
 
 ## Breakdown by question type
 
 ### precision@1 (46 questions)
 
-| metric | vanilla | graphrag | Δ |
+| metric | vanilla | graphrag | nano |
 |---|---:|---:|---:|
-| p@1 | 0.913 | 0.913 | +0.000 |
-| p@5 | 0.200 | 0.200 | +0.000 |
-| r@5 | 1.000 | 1.000 | +0.000 |
-| hit@5 | 1.000 | 1.000 | +0.000 |
-| latency_s | 0.431 | 0.510 | +0.079 |
+| p@1 | 0.913 | 0.913 | 0.891 |
+| p@5 | 0.200 | 0.200 | 0.200 |
+| r@5 | 1.000 | 1.000 | 1.000 |
+| hit@5 | 1.000 | 1.000 | 1.000 |
+| latency_s | 0.364 | 0.349 | 0.299 |
 
 ### recall@5 (8 questions)
 
-| metric | vanilla | graphrag | Δ |
+| metric | vanilla | graphrag | nano |
 |---|---:|---:|---:|
-| p@1 | 0.625 | 0.625 | +0.000 |
-| p@5 | 0.350 | 0.350 | +0.000 |
-| r@5 | 0.833 | 0.833 | +0.000 |
-| hit@5 | 1.000 | 1.000 | +0.000 |
-| latency_s | 0.403 | 0.417 | +0.014 |
+| p@1 | 0.625 | 0.625 | 0.750 |
+| p@5 | 0.350 | 0.350 | 0.375 |
+| r@5 | 0.833 | 0.833 | 0.833 |
+| hit@5 | 1.000 | 1.000 | 1.000 |
+| latency_s | 0.348 | 0.353 | 0.274 |
 
 ### related (18 questions)
 
-| metric | vanilla | graphrag | Δ |
+| metric | vanilla | graphrag | nano |
 |---|---:|---:|---:|
-| p@1 | 0.000 | 0.500 | +0.500 |
-| p@5 | 0.389 | 0.456 | +0.067 |
-| r@5 | 0.557 | 0.716 | +0.159 |
-| hit@5 | 0.833 | 0.944 | +0.111 |
-| latency_s | 0.545 | 0.008 | -0.537 |
+| p@1 | 0.000 | 0.500 | 0.111 |
+| p@5 | 0.389 | 0.456 | 0.167 |
+| r@5 | 0.557 | 0.716 | 0.195 |
+| hit@5 | 0.833 | 0.944 | 0.611 |
+| latency_s | 0.414 | 0.007 | 0.003 |
 
 ## Takeaways (honest interpretation)
 
@@ -101,7 +110,7 @@ whole reason to exist), graphrag:
   traversal surfaces entity-linked neighbors that no title-search would find,
   and the semantic fallback fills in thematic neighbors for posts whose
   entities are all unique to themselves (short fiction, standalone projects).
-- Is **68× faster** (8 ms vs 545 ms)
+- Is **59× faster** (7 ms vs 414 ms)
   because the graph traversal is a single SQL CTE over precomputed mentions,
   while vanilla's fallback runs a fresh embedding call + vector scan per query.
 
@@ -115,6 +124,35 @@ extraction), but that's a one-time cost amortized across every future query.
 human-reviewed questions on a 24-post corpus. Bigger corpora, multi-author
 blogs, or different domains will shift the numbers. The methodology is
 reproducible and we'd welcome pull requests extending it.
+
+## nano-graphrag — how it compares
+
+nano-graphrag is the closest open-source neighbor of this project:
+minimal Python, entity graph auto-built at ingest, designed for LLM
+workflows. It's an honest apples-to-apples reference point.
+
+On the same corpus with the same Gemini models:
+
+- **Related p@1**: nano 11% vs korely-graphrag 50% vs vanilla 0%.
+- **Related r@5**: nano 20% vs korely-graphrag 72% vs vanilla 56%.
+- **Related hit@5**: nano 61% vs korely-graphrag 94% vs vanilla 83%.
+- **Related latency**: nano 3 ms vs korely-graphrag 7 ms vs vanilla 414 ms.
+
+**Caveats on this comparison.**
+
+- nano-graphrag has **no `get_related(doc)` primitive**. The number you
+  see is from our own DIY traversal of nano's internal networkx graph —
+  we collect the seed doc's entities, then rank other docs by count of
+  shared entities. No IDF, no hub-node filtering. A user who wants this
+  on nano-graphrag today would have to write similar code.
+- For non-related queries (precision@1, recall@5) nano uses its chunk
+  vector DB directly (closest to its `naive` RAG mode), which is the
+  pure-vector half of vanilla's stack — no FTS. Any gap on those rows
+  reflects the FTS contribution, not graph quality.
+- nano-graphrag's ingest also runs community-report generation (used
+  by its `global` mode for theme summarisation). This benchmark does
+  not exercise that feature, so nano pays an ingest-time cost for
+  capability we don't measure. Fair to it to say so upfront.
 
 ## Notable cases
 
@@ -138,7 +176,14 @@ docker compose up -d db
 # fetch Karpathy corpus
 git clone --depth 1 https://github.com/karpathy/karpathy.github.io /tmp/kb
 mkdir -p benchmark/karpathy && cp /tmp/kb/_posts/*.markdown benchmark/karpathy/
-# ingest + benchmark
+# ingest + 2-system benchmark (vanilla vs korely-graphrag)
 docker compose run --rm app korely-graphrag ingest --reset /app/benchmark/karpathy
+docker compose run --rm app python /app/benchmark/run_benchmark.py
+
+# optional 3rd column: nano-graphrag on the same corpus
+docker compose --profile benchmark build nano
+docker compose --profile benchmark run --rm nano python ingest_nano.py
+docker compose --profile benchmark run --rm nano python run_nano.py
+# re-run the main benchmark — it auto-joins nano_predictions.jsonl
 docker compose run --rm app python /app/benchmark/run_benchmark.py
 ```

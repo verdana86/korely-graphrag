@@ -25,3 +25,7 @@ benchmark/data/
 benchmark/questions.jsonl
 benchmark/questions_for_review.md
 benchmark/results.jsonl
+
+# nano-graphrag ingest artefacts (regenerate via `ingest_nano.py`)
+benchmark/bench_nano/
+benchmark/nano_predictions.jsonl
