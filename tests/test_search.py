@@ -156,5 +156,47 @@ def test_get_related_for_isolated_item_returns_empty(seeded_db):
     c_id = seeded_db["c"]
     with session_scope() as s:
         related = get_related_items(c_id, session=s, limit=5)
-    # C only shares Paris, with no other item → empty
+    # C shares only Paris with no other item and has no item embedding in the
+    # fixture → graph empty AND semantic fallback short-circuits to [].
+    assert related == []
+
+
+def test_semantic_fallback_fills_isolated_items_when_embeddings_present(seeded_db):
+    """When the graph returns fewer hits than `limit` and item embeddings
+    exist, the fallback fills remaining slots via pgvector similarity and
+    tags them `source='semantic'`. Isolated items that would otherwise
+    return [] now surface their nearest semantic neighbors.
+    """
+    fp = FakeProvider()
+    c_id = seeded_db["c"]
+    a_id = seeded_db["a"]
+    b_id = seeded_db["b"]
+    # Populate item-level embeddings (fixture only sets chunk embeddings)
+    with session_scope() as s:
+        for iid, text_ in [
+            (a_id, "PostgreSQL hybrid search retrieval engine pgvector"),
+            (b_id, "Embeddings dense vector retrieval pgvector index"),
+            (c_id, "A walk along the Seine river in Paris during spring"),
+        ]:
+            s.get(Item, uuid.UUID(iid)).embedding = fp.embed(text_)
+
+    with session_scope() as s:
+        related = get_related_items(c_id, session=s, limit=5)
+    # C is graph-isolated but fallback must surface A and B as semantic neighbors.
+    assert len(related) == 2
+    assert all(r.source == "semantic" for r in related)
+    assert {r.item_id for r in related} == {a_id, b_id}
+
+
+def test_semantic_fallback_disabled_returns_only_graph_hits(seeded_db):
+    """`semantic_fallback=False` preserves the pre-fallback contract: if the
+    graph is empty, the result is empty even when embeddings exist.
+    """
+    fp = FakeProvider()
+    c_id = seeded_db["c"]
+    with session_scope() as s:
+        s.get(Item, uuid.UUID(c_id)).embedding = fp.embed("Paris Seine spring")
+
+    with session_scope() as s:
+        related = get_related_items(c_id, session=s, limit=5, semantic_fallback=False)
     assert related == []

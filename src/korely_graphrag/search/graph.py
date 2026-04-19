@@ -20,6 +20,7 @@ class RelatedHit:
     folder: str | None
     score: float
     shared_entities: list[str]
+    source: str = "graph"  # "graph" (entity-overlap) or "semantic" (embedding fallback)
 
     def to_dict(self) -> dict:
         return {
@@ -28,6 +29,7 @@ class RelatedHit:
             "folder": self.folder,
             "score": round(self.score, 6),
             "shared_entities": self.shared_entities,
+            "source": self.source,
         }
 
 
@@ -100,24 +102,52 @@ LIMIT :lim
 DEFAULT_UBIQUITY_THRESHOLD = 0.5
 
 
-def get_related_items(
-    item_id: str,
+_SEMANTIC_FALLBACK_SQL = text("""
+    SELECT i.id::text, i.title, i.folder,
+           1.0 - (i.embedding <=> CAST(:seed_emb AS vector)) AS cosine_sim
+    FROM items i
+    WHERE i.id <> :seed_id
+      AND i.embedding IS NOT NULL
+      AND i.id NOT IN :excluded_ids
+    ORDER BY i.embedding <=> CAST(:seed_emb AS vector)
+    LIMIT :lim
+""")
+
+
+def _semantic_fallback(
+    seed_id: str,
+    excluded_ids: set[str],
     *,
     session: Session,
-    limit: int = 10,
-    ubiquity_threshold: float = DEFAULT_UBIQUITY_THRESHOLD,
+    limit: int,
 ) -> list[RelatedHit]:
-    """Return items sharing entities with `item_id`, ranked by importance overlap.
+    """Fill remaining slots using pgvector similarity on item embeddings.
 
-    Entities present in more than `ubiquity_threshold` of items are treated as
-    structurally ubiquitous (e.g. the blog author across all posts) and
-    excluded from the traversal — they create hairball connections.
+    Used when the entity graph returns fewer items than requested — typical
+    for 'island' documents (short narratives with unique named entities that
+    don't overlap with the rest of the corpus). Items are tagged `source='semantic'`
+    so callers can distinguish graph-derived from embedding-derived links.
     """
+    seed_emb_row = session.execute(
+        text("SELECT embedding FROM items WHERE id = :id"),
+        {"id": seed_id},
+    ).first()
+    if not seed_emb_row or seed_emb_row[0] is None:
+        return []
+    # psycopg2 returns pgvector as string "[...]" or list; ensure str
+    seed_emb = seed_emb_row[0]
+    if not isinstance(seed_emb, str):
+        seed_emb = str(list(seed_emb))
+
+    # Need at least one value for IN-clause — sentinel UUID when set is empty
+    excluded_list = list(excluded_ids) or ["00000000-0000-0000-0000-000000000000"]
+
     rows = session.execute(
-        _RELATED_SQL.bindparams(
-            bindparam("item_id", value=item_id),
+        _SEMANTIC_FALLBACK_SQL.bindparams(
+            bindparam("seed_emb", value=seed_emb),
+            bindparam("seed_id", value=seed_id),
+            bindparam("excluded_ids", value=tuple(excluded_list), expanding=True),
             bindparam("lim", value=limit),
-            bindparam("ubiquity_threshold", value=float(ubiquity_threshold)),
         )
     ).all()
     return [
@@ -126,7 +156,56 @@ def get_related_items(
             title=r[1],
             folder=r[2],
             score=float(r[3]),
-            shared_entities=list(r[4]) if r[4] else [],
+            shared_entities=[],
+            source="semantic",
         )
         for r in rows
     ]
+
+
+def get_related_items(
+    item_id: str,
+    *,
+    session: Session,
+    limit: int = 10,
+    ubiquity_threshold: float = DEFAULT_UBIQUITY_THRESHOLD,
+    semantic_fallback: bool = True,
+) -> list[RelatedHit]:
+    """Return items sharing entities with `item_id`, ranked by importance overlap.
+
+    Entities present in more than `ubiquity_threshold` of items are treated as
+    structurally ubiquitous (e.g. the blog author across all posts) and
+    excluded from the traversal — they create hairball connections.
+
+    When `semantic_fallback=True` and the graph returns fewer items than
+    `limit`, the remaining slots are filled by pgvector cosine similarity on
+    item embeddings. Fallback items are tagged `source='semantic'`.
+    """
+    rows = session.execute(
+        _RELATED_SQL.bindparams(
+            bindparam("item_id", value=item_id),
+            bindparam("lim", value=limit),
+            bindparam("ubiquity_threshold", value=float(ubiquity_threshold)),
+        )
+    ).all()
+    graph_hits = [
+        RelatedHit(
+            item_id=r[0],
+            title=r[1],
+            folder=r[2],
+            score=float(r[3]),
+            shared_entities=list(r[4]) if r[4] else [],
+            source="graph",
+        )
+        for r in rows
+    ]
+
+    if not semantic_fallback or len(graph_hits) >= limit:
+        return graph_hits
+
+    excluded = {item_id, *(h.item_id for h in graph_hits)}
+    remaining = limit - len(graph_hits)
+    fallback_hits = _semantic_fallback(
+        item_id, excluded, session=session, limit=remaining
+    )
+    return graph_hits + fallback_hits
