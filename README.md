@@ -1,8 +1,14 @@
 # korely-graphrag
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Tests](https://img.shields.io/badge/tests-49_passing-brightgreen.svg)](tests/)
+[![MCP](https://img.shields.io/badge/MCP-native-8A2BE2.svg)](https://modelcontextprotocol.io/)
+[![Gemini](https://img.shields.io/badge/LLM-Gemini-4285F4.svg)](https://ai.google.dev/)
+
 > A second brain for your markdown notes — with an entity graph that finds the connections you didn't write down.
 
-**Status:** early preview · single-user · CLI-first · Apache 2.0
+**Status:** early preview · single-user · CLI-first · Apache 2.0 · [honest benchmark](BENCHMARK.md) included
 
 ---
 

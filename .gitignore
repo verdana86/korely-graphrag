@@ -10,7 +10,8 @@ venv/
 dist/
 build/
 *.db
-notes/
+notes/*
+!notes/README.md
 benchmark/data/
 .DS_Store
 .idea/
