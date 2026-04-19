@@ -50,6 +50,10 @@ docker compose exec app korely-graphrag ingest /notes
 # Check what got indexed
 docker compose exec app korely-graphrag stats
 
+# See the graph visually (Mermaid — paste anywhere that renders it)
+docker compose exec app korely-graphrag export -o /app/graph.md
+# Sample output on the benchmark corpus: benchmark/graph.md
+
 # Start MCP server
 docker compose exec app korely-graphrag serve
 # MCP available at http://localhost:8080/sse
