@@ -28,7 +28,17 @@ Plug it into Claude Code, Cursor, Claude Desktop, or any MCP client and ask ques
 
 ![Claude Code calling korely_search](docs/images/02-claude-code-search.png)
 
-Claude calls `korely_search` on the local server and gets back 4 posts about RNNs from the indexed corpus, ranked by relevance. The "related" companion tool (`korely_get_related`) surfaces thematically connected posts that don't share keywords — see [BENCHMARK.md](BENCHMARK.md) for numbers.
+Claude calls `korely_search` on the local server and gets back 4 posts about RNNs from the indexed corpus, ranked by relevance.
+
+**3. Then — the killer feature** — ask for *related* posts:
+
+![Claude Code calling korely_get_related](docs/images/03-claude-code-get-related.png)
+
+`korely_get_related` returns 10 posts connected to the RNN post, split by mechanism:
+- **Graph-linked** — posts sharing auto-extracted entities (ConvNets, Github, Python)
+- **Semantic-linked** — posts with no shared entities but close in vector space (Recipe, nntutorial, RL), surfaced by the pgvector fallback
+
+The graph catches the *named-entity* connections; the fallback catches the *thematic* ones even when the entities are unique to each post (as for short fiction or standalone projects). See [BENCHMARK.md](BENCHMARK.md) for numbers — graphrag wins p@1 0.50 vs 0.00 for vanilla RAG on this exact query type.
 
 ## Why another RAG tool?
 
