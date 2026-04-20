@@ -18,6 +18,18 @@
 
 Plug it into Claude Code, Cursor, Claude Desktop, or any MCP client and ask questions about your notes — including questions like *"what else mentions X?"* that flat-file memory and chunk-based RAG can't answer well.
 
+## Demo
+
+**1. Start the MCP server** — `docker compose exec app korely-graphrag serve`:
+
+![MCP server starting](docs/images/01-mcp-server-running.png)
+
+**2. Ask your MCP client** — Claude Code is pointed at `http://localhost:8080/sse`:
+
+![Claude Code calling korely_search](docs/images/02-claude-code-search.png)
+
+Claude calls `korely_search` on the local server and gets back 4 posts about RNNs from the indexed corpus, ranked by relevance. The "related" companion tool (`korely_get_related`) surfaces thematically connected posts that don't share keywords — see [BENCHMARK.md](BENCHMARK.md) for numbers.
+
 ## Why another RAG tool?
 
 There are a lot of "second brain with LLM" projects right now. Most of them stop at: chunk markdown → embed → cosine search → return top-k. That's fine for "find me the note about X", but it falls apart when you want to *discover* connections.
