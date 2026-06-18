@@ -258,7 +258,7 @@ def main() -> None:
         "evidence_retention_avg_pct": round(statistics.mean(retentions), 1),
         "evidence_retention_median_pct": round(statistics.median(retentions), 1),
         "blocks_over_budget": over_budget,
-        "saved_per_turn": round(fa - ka),
+        "saved_per_turn": round(fa) - round(ka),  # match the displayed rounded averages
     }
     print("-" * 78)
     print(f"{'ALL (pooled)':26} {tot['n']:>4} {fa:>9.0f} {ka:>11.0f} {red:>5.0f}%")
