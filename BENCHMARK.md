@@ -122,8 +122,13 @@ extraction), but that's a one-time cost amortized across every future query.
 
 **What we want reviewers to push on.** The related ground truth is 18
 human-reviewed questions on a 24-post corpus. Bigger corpora, multi-author
-blogs, or different domains will shift the numbers. The methodology is
-reproducible and we'd welcome pull requests extending it.
+blogs, or different domains will shift the numbers. Also note that the
+`related` comparison bundles **two** graphrag advantages — entity-graph
+traversal *and* a pgvector semantic fallback — against a **title-only**
+vanilla, so part of the 0.50-vs-0.00 gap is "graph + semantic vs title",
+not the entity graph in isolation. A fair component-isolating ablation
+(give vanilla the same seed-embedding fallback) is a tracked follow-up.
+The methodology is reproducible and we'd welcome pull requests extending it.
 
 ## nano-graphrag — how it compares
 

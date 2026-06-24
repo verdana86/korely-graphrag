@@ -104,19 +104,24 @@ We tokenize **both** prompts with the same tokenizer and report the reduction.
 
 ## Reproduce it
 
-**A. Verify the numbers ($0, no keys, no model)** straight from the published data + public dataset:
+**A. Verify the numbers ($0, no API key, no model)** straight from the published data + public dataset:
 
 ```bash
-pip install tiktoken huggingface_hub
-python scripts/analyze.py --transcripts "data/*.jsonl" --out results
+cd token-savings
+pip3 install tiktoken huggingface_hub
+# First run fetches the public LongMemEval dataset (~15 MB) from HuggingFace to
+# rebuild the full-history baseline: needs network (but no API key, no model).
+# After that it is cached and the arithmetic runs offline in under a second.
+python3 scripts/analyze.py --transcripts "data/*.jsonl" --out results
 ```
 
 **B. Regenerate on your own Korely.** Free key at [korely.ai/agents](https://korely.ai/agents):
 
 ```bash
+cd token-savings
 export KORELY_API_KEY=kor_live_...
-python scripts/reproduce.py --axis knowledge-update --n 20
-python scripts/analyze.py --transcripts "results/repro-*.jsonl" --out results
+python3 scripts/reproduce.py --axis knowledge-update --n 20
+python3 scripts/analyze.py --transcripts "results/repro-*.jsonl" --out results
 ```
 
 Self-contained (no private harness): public dataset in, your Korely memory out, same math. Uses your write quota; the analysis stays free.
