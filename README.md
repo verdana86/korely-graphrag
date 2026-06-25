@@ -14,7 +14,7 @@
 
 On the public **LongMemEval** benchmark, at an **equal token budget**, a reader answers **76% of questions correctly from Korely's selected memory block versus 42% from a same-size recency window** — same cost, **1.8× the answers right**, and within ~7 points of re-sending the *entire* history (83.1%) at a third of the tokens.
 
-That selection number is produced by Korely's hosted `get_context()` — the cloud memory layer — and you reproduce it from this repo against the free API. The **open engine in this repo** (`src/`) is the retrieval core (hybrid search + the entity graph); it reproduces the [retrieval benchmark](BENCHMARK.md) (p@1 0.50 vs 0.00 vs vanilla RAG). Full method + raw per-answer data: [token-savings/](token-savings/).
+That selection number is produced by Korely's hosted `get_context()` — the cloud memory layer — and you reproduce it from this repo against the free API. The **open engine in this repo** (`src/`) is the retrieval core (hybrid search + the entity graph); it reproduces the [retrieval benchmark](BENCHMARK.md): on related-post queries the graph adds recall (r@5 0.72 vs 0.65, hit@5 0.94 vs 0.83) at **59× the speed** of vanilla, and clearly beats nano-graphrag (precision ties). Full method + raw per-answer data: [token-savings/](token-savings/).
 
 ---
 
@@ -26,7 +26,7 @@ This repo is two things in one place: the open-source retrieval engine that powe
 |---|---|
 | To run it on your own markdown notes | [Quickstart](#quickstart) |
 | The **memory-quality** result: 76% vs 42% correct at equal token budget (Korely's hosted memory) | [token-savings/](token-savings/) |
-| The **retrieval** result (entity graph vs vanilla RAG, p@1 0.50 vs 0.00) | [BENCHMARK.md](BENCHMARK.md) |
+| The **retrieval** result (entity graph vs vanilla RAG vs nano: recall + 59× speed on related queries) | [BENCHMARK.md](BENCHMARK.md) |
 | To understand how it works inside (4 diagrams) | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | The 30-second pitch | [What it is](#what-it-is) |
 
@@ -84,7 +84,7 @@ Claude calls `korely_search` on the local server and gets back 4 posts about RNN
 - **Graph-linked** — posts sharing auto-extracted entities (ConvNets, Github, Python)
 - **Semantic-linked** — posts with no shared entities but close in vector space (Recipe, nntutorial, RL), surfaced by the pgvector fallback
 
-The graph catches the *named-entity* connections; the fallback catches the *thematic* ones even when the entities are unique to each post (as for short fiction or standalone projects). See [BENCHMARK.md](BENCHMARK.md) for numbers — graphrag wins p@1 0.50 vs 0.00 for vanilla RAG on this exact query type.
+The graph catches the *named-entity* connections; the fallback catches the *thematic* ones even when the entities are unique to each post (as for short fiction or standalone projects). See [BENCHMARK.md](BENCHMARK.md) for numbers — on related-post queries the graph adds recall (r@5 0.72 vs 0.65, hit@5 0.94 vs 0.83) and is **59× faster** than vanilla's title fallback (precision ties), and clearly beats nano-graphrag.
 
 ## Why another RAG tool?
 

@@ -51,9 +51,9 @@ does not exercise.
 
 | metric | vanilla (mean) | graphrag (mean) | nano (mean) |
 |---|---:|---:|---:|
-| p@1 | 0.653 | 0.778 | 0.681 |
-| p@5 | 0.264 | 0.281 | 0.211 |
-| r@5 | 0.871 | 0.911 | 0.780 |
+| p@1 | 0.778 | 0.778 | 0.681 |
+| p@5 | 0.281 | 0.281 | 0.211 |
+| r@5 | 0.893 | 0.911 | 0.780 |
 | hit@5 | 0.958 | 0.986 | 0.903 |
 | latency_s | 0.375 | 0.264 | 0.222 |
 
@@ -83,9 +83,9 @@ does not exercise.
 
 | metric | vanilla | graphrag | nano |
 |---|---:|---:|---:|
-| p@1 | 0.000 | 0.500 | 0.111 |
-| p@5 | 0.389 | 0.456 | 0.167 |
-| r@5 | 0.557 | 0.716 | 0.195 |
+| p@1 | 0.500 | 0.500 | 0.111 |
+| p@5 | 0.456 | 0.456 | 0.167 |
+| r@5 | 0.646 | 0.716 | 0.195 |
 | hit@5 | 0.833 | 0.944 | 0.611 |
 | latency_s | 0.414 | 0.007 | 0.003 |
 
@@ -102,17 +102,21 @@ is shared.
 **Where graphrag earns its keep.** On `related` queries (the graph's
 whole reason to exist), graphrag:
 
-- Picks the top-1 correct related post **50% of the time vs 0%** for vanilla.
-  Vanilla's title-based fallback rarely puts the right post first because
-  title keyword overlap is a weak proxy for "thematically related".
-- Improves recall@5 by **+0.159** (56% → 72%) and
-  hit@5 by **+0.111** (83% → 94%). The graph
-  traversal surfaces entity-linked neighbors that no title-search would find,
-  and the semantic fallback fills in thematic neighbors for posts whose
-  entities are all unique to themselves (short fiction, standalone projects).
-- Is **59× faster** (7 ms vs 414 ms)
-  because the graph traversal is a single SQL CTE over precomputed mentions,
-  while vanilla's fallback runs a fresh embedding call + vector scan per query.
+- **Ties vanilla on precision** (p@1 0.50/0.50, p@5 0.46/0.46): once vanilla
+  correctly excludes the seed post, both put a relevant post first equally
+  often. We do **not** claim a precision win on `related`.
+- **Improves recall@5 by +0.070** (65% → 72%) and **hit@5 by +0.111**
+  (83% → 94%): a modest but real gain in *how much* of the related set it
+  recovers. The graph traversal surfaces entity-linked neighbors a title
+  search misses, and the semantic fallback fills thematic neighbors for
+  "island" posts whose entities are all unique to themselves (short fiction,
+  standalone projects).
+- Is **59× faster** (7 ms vs 414 ms) because the traversal is a single SQL
+  CTE over precomputed mentions, while vanilla's fallback runs a fresh
+  embedding call + vector scan per query.
+- **Clearly beats nano-graphrag** on `related` (p@1 0.50 vs 0.11, r@5 0.72 vs
+  0.20, hit@5 0.94 vs 0.61) — the entity graph here does real work a minimal
+  graph doesn't.
 
 **What's NOT in this benchmark.** Cost per query is essentially identical
 (both systems do one embedding call per search; graphrag's fallback path
@@ -122,13 +126,21 @@ extraction), but that's a one-time cost amortized across every future query.
 
 **What we want reviewers to push on.** The related ground truth is 18
 human-reviewed questions on a 24-post corpus. Bigger corpora, multi-author
-blogs, or different domains will shift the numbers. Also note that the
-`related` comparison bundles **two** graphrag advantages — entity-graph
-traversal *and* a pgvector semantic fallback — against a **title-only**
-vanilla, so part of the 0.50-vs-0.00 gap is "graph + semantic vs title",
-not the entity graph in isolation. A fair component-isolating ablation
-(give vanilla the same seed-embedding fallback) is a tracked follow-up.
-The methodology is reproducible and we'd welcome pull requests extending it.
+blogs, or different domains will shift the numbers. The `related` comparison
+also bundles **two** graphrag advantages — entity-graph traversal *and* a
+pgvector semantic fallback — against a **title-only** vanilla, so the
+r@5 / hit@5 gain is "graph + semantic vs title", not the entity graph in
+isolation. A component-isolating ablation (give vanilla the same seed-embedding
+fallback) is a tracked follow-up. The methodology is reproducible and we'd
+welcome pull requests extending it.
+
+> **Correction (transparency).** An earlier version reported related p@1 as
+> *0.50 vs 0.00*. That was an artifact: vanilla's title search returned the
+> **seed post itself** at rank 1, and an item is never in its own related
+> ground truth, so vanilla's p@1 was forced to 0. `_vanilla_rag_related` now
+> excludes the seed (as `get_related` always did); with the fix, precision
+> **ties** (p@1 0.50/0.50) and the honest graph edge is recall@5 / hit@5 /
+> latency, shown above. A reviewer found this by reproducing the benchmark — thank you.
 
 ## nano-graphrag — how it compares
 
@@ -138,8 +150,8 @@ workflows. It's an honest apples-to-apples reference point.
 
 On the same corpus with the same Gemini models:
 
-- **Related p@1**: nano 11% vs korely-graphrag 50% vs vanilla 0%.
-- **Related r@5**: nano 20% vs korely-graphrag 72% vs vanilla 56%.
+- **Related p@1**: nano 11% vs korely-graphrag 50% vs vanilla 50%.
+- **Related r@5**: nano 20% vs korely-graphrag 72% vs vanilla 65%.
 - **Related hit@5**: nano 61% vs korely-graphrag 94% vs vanilla 83%.
 - **Related latency**: nano 3 ms vs korely-graphrag 7 ms vs vanilla 414 ms.
 

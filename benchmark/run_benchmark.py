@@ -94,12 +94,20 @@ def _vanilla_rag_search(query: str, limit: int = 10) -> list[str]:
 
 
 def _vanilla_rag_related(item_id: str, limit: int = 10) -> list[str]:
-    """No graph → use the item's title as a search query."""
+    """No graph → use the item's title as a search query.
+
+    Exclude the seed item itself. A "related" function must never return its
+    own query document: a title search returns the seed at rank 1, and since an
+    item is never in its own related ground truth, that would force p@1 to 0.
+    graphrag's get_related already excludes the seed, so without this the
+    baseline is handicapped by a missing filter rather than by the graph.
+    """
     with session_scope() as s:
         item = s.get(Item, item_id)
         if not item:
             return []
-        return _vanilla_rag_search(item.title, limit=limit)[:limit]
+        hits = _vanilla_rag_search(item.title, limit=limit + 1)
+        return [iid for iid in hits if iid != item_id][:limit]
 
 
 def query_vanilla(q: dict) -> tuple[list[str], float]:
