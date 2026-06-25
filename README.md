@@ -6,7 +6,7 @@
 [![MCP](https://img.shields.io/badge/MCP-native-8A2BE2.svg)](https://modelcontextprotocol.io/)
 [![Gemini](https://img.shields.io/badge/LLM-Gemini-4285F4.svg)](https://ai.google.dev/)
 
-> The open entity-graph retrieval engine behind [Korely](https://korely.ai) for your markdown notes — *related*-note lookups that beat nano-graphrag on quality and plain vector RAG on speed (**59×**), served over MCP. The hosted memory layer built on it answers **76% vs 42%** at an equal token budget on [LongMemEval](token-savings/).
+> The open entity-graph retrieval engine behind [Korely](https://korely.ai) for your markdown notes — *related*-note lookups that beat nano-graphrag on quality and plain vector RAG on speed (**62×**), served over MCP. The hosted memory layer built on it answers **76% vs 42%** at an equal token budget on [LongMemEval](token-savings/).
 
 **Status:** Apache 2.0 · reproducible benchmarks included · early preview, single-user, CLI-first
 
@@ -14,7 +14,7 @@
 
 On the public **LongMemEval** benchmark, at an **equal token budget**, a reader answers **76% of questions correctly from Korely's selected memory block versus 42% from a same-size recency window** — same cost, **1.8× the answers right**, and within ~7 points of re-sending the *entire* history (83.1%) at a third of the tokens.
 
-That selection number is produced by Korely's hosted `get_context()` — the cloud memory layer — and you reproduce it from this repo against the free API. The **open engine in this repo** (`src/`) is the retrieval core (hybrid search + the entity graph); it reproduces the [retrieval benchmark](BENCHMARK.md): on related-post queries the graph adds recall (r@5 0.72 vs 0.65, hit@5 0.94 vs 0.83) at **59× the speed** of vanilla, and clearly beats nano-graphrag (precision ties). Full method + raw per-answer data: [token-savings/](token-savings/).
+That selection number is produced by Korely's hosted `get_context()` — the cloud memory layer — and you reproduce it from this repo against the free API. The **open engine in this repo** (`src/`) is the retrieval core (hybrid search + the entity graph); it reproduces the [retrieval benchmark](BENCHMARK.md): on related-post queries the graph adds recall (r@5 0.72 vs 0.65, hit@5 0.94 vs 0.83) at **62× the speed** of vanilla (precision ties), and clearly beats nano-graphrag. Full method + raw per-answer data: [token-savings/](token-savings/).
 
 ---
 
@@ -26,8 +26,8 @@ This repo is two things in one place: the open-source retrieval engine that powe
 |---|---|
 | To run it on your own markdown notes | [Quickstart](#quickstart) |
 | The **memory-quality** result: 76% vs 42% correct at equal token budget (Korely's hosted memory) | [token-savings/](token-savings/) |
-| The **retrieval** result (entity graph vs vanilla RAG vs nano: recall + 59× speed on related queries) | [BENCHMARK.md](BENCHMARK.md) |
-| To understand how it works inside (4 diagrams) | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| The **retrieval** result (entity graph vs vanilla RAG vs nano: recall + 62× speed on related queries) | [BENCHMARK.md](BENCHMARK.md) |
+| To understand how it works inside (6 diagrams) | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | The 30-second pitch | [What it is](#what-it-is) |
 
 ## Map of this repo
@@ -61,7 +61,7 @@ Plug it into Claude Code, Cursor, Claude Desktop, or any MCP client and ask ques
 
 ## Benchmarks
 
-- **[Memory quality on LongMemEval](token-savings/)**: at an equal token budget, Korely's selected block answers **76% of questions correctly vs 42%** for a same-size recency window (**+34 points**), within ~7 points of full-context (83.1%) at a third of the tokens. Animated dashboard, raw per-answer data, and judge transcripts included.
+- **[Memory quality on LongMemEval](token-savings/)**: at an equal token budget, Korely's selected block answers **76% of questions correctly vs 42%** for a same-size recency window (**+34 points**), within ~7 points of full-context (83.1%) at a third of the tokens. Animated dashboard, raw per-answer data, and per-answer pass/fail judgements included.
 - **[Retrieval vs vanilla RAG and nano-graphrag](BENCHMARK.md)**: the entity-graph retrieval benchmark.
 
 ## Demo
@@ -84,7 +84,7 @@ Claude calls `korely_search` on the local server and gets back 4 posts about RNN
 - **Graph-linked** — posts sharing auto-extracted entities (ConvNets, Github, Python)
 - **Semantic-linked** — posts with no shared entities but close in vector space (Recipe, nntutorial, RL), surfaced by the pgvector fallback
 
-The graph catches the *named-entity* connections; the fallback catches the *thematic* ones even when the entities are unique to each post (as for short fiction or standalone projects). See [BENCHMARK.md](BENCHMARK.md) for numbers — on related-post queries the graph adds recall (r@5 0.72 vs 0.65, hit@5 0.94 vs 0.83) and is **59× faster** than vanilla's title fallback (precision ties), and clearly beats nano-graphrag.
+The graph catches the *named-entity* connections; the fallback catches the *thematic* ones even when the entities are unique to each post (as for short fiction or standalone projects). See [BENCHMARK.md](BENCHMARK.md) for numbers — on related-post queries the graph adds recall (r@5 0.72 vs 0.65, hit@5 0.94 vs 0.83) and is **62× faster** than vanilla's title fallback (precision ties), and clearly beats nano-graphrag.
 
 ## Why another RAG tool?
 
@@ -159,8 +159,8 @@ The killer feature is `get_related` — given a note, it surfaces other notes
 that share *entities* (people, technologies, concepts) rather than keywords.
 Everything else is standard hybrid RAG served through MCP.
 
-Full details in [ARCHITECTURE.md](ARCHITECTURE.md) — 3 more diagrams inside
-covering ingest, query, and graph-traversal pipelines.
+Full details in [ARCHITECTURE.md](ARCHITECTURE.md) — more diagrams inside
+covering the data model, ingest, query, graph-traversal, and provider pipelines.
 
 ## Requirements
 
@@ -171,16 +171,16 @@ Or, if you prefer manual setup:
 - Python 3.11+
 - PostgreSQL 15+ with `pgvector` extension
 
-## Roadmap
+## Status
+
+Early preview: single-user, CLI-first, Apache 2.0. What actually works today:
 
 - [x] Apache 2.0 release
-- [x] Gemini provider
-- [x] 5 MCP read tools
-- [x] CLI ingest / serve / stats
-- [ ] **Ollama provider — 100% local mode** (planned)
-- [ ] Incremental re-ingest (only changed files)
-- [ ] Web UI for browsing the graph
-- [ ] Obsidian plugin
+- [x] Gemini provider (chat + embeddings)
+- [x] 5 MCP read tools — `search`, `read_item`, `get_related`, `list_notes`, `list_folders`
+- [x] CLI — `ingest` / `serve` / `stats` / `export`
+
+No committed roadmap beyond this — it's a side project (see [Contributing](#contributing)). Want something? Open an issue.
 
 ## Contributing
 

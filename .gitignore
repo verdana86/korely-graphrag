@@ -28,6 +28,9 @@ benchmark/questions_for_review.md
 # nano-graphrag ingest artefacts (regenerate via `ingest_nano.py`)
 benchmark/bench_nano/
 
+# Generated benchmark report (run_benchmark.py writes this; BENCHMARK.md is curated)
+benchmark/REPORT.generated.md
+
 # NOTE: the canonical benchmark inputs/outputs ARE committed so BENCHMARK.md is
 # verifiable from a fresh clone — benchmark/questions.jsonl, benchmark/results.jsonl,
 # benchmark/nano_predictions.jsonl. Do NOT re-ignore them.

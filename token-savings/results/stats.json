@@ -1,0 +1,29 @@
+{
+  "n": 178,
+  "contingency": {
+    "both_correct": 66,
+    "korely_only_correct": 70,
+    "window_only_correct": 9,
+    "both_wrong": 33
+  },
+  "korely_accuracy": 76.4,
+  "korely_accuracy_ci95": [
+    69.7,
+    82.0
+  ],
+  "window_accuracy": 42.1,
+  "window_accuracy_ci95": [
+    35.1,
+    49.5
+  ],
+  "difference_pts": 34.3,
+  "difference_ci95_pts": [
+    25.9,
+    42.7
+  ],
+  "mcnemar_b_korely_only": 70,
+  "mcnemar_c_window_only": 9,
+  "mcnemar_exact_p": 7.778844062771146e-13,
+  "mcnemar_chi2": 45.6,
+  "mcnemar_chi2_p": 1.4730869133724694e-11
+}

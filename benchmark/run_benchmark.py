@@ -8,7 +8,9 @@
 
 Output:
 - benchmark/results.jsonl (per-question per-system)
-- benchmark/BENCHMARK.md (aggregated, human-readable)
+- benchmark/REPORT.generated.md (aggregated, human-readable; a GENERATED
+  artifact — the curated benchmark/BENCHMARK.md is hand-maintained and is
+  NOT overwritten by this script. Diff the two to verify the tables match.)
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ from korely_graphrag.storage import Item, session_scope  # noqa: E402
 
 QUESTIONS_PATH = Path("/app/benchmark/questions.jsonl")
 RESULTS_PATH = Path("/app/benchmark/results.jsonl")
-REPORT_PATH = Path("/app/BENCHMARK.md")
+REPORT_PATH = Path("/app/benchmark/REPORT.generated.md")
 
 # Optional third system: nano-graphrag. Its predictions are generated
 # out-of-band by `run_nano.py` inside the isolated `nano` docker service
@@ -436,7 +438,7 @@ def _write_report(agg: dict, results: list[dict]):
         lines.append("  traversal surfaces entity-linked neighbors that no title-search would find,")
         lines.append("  and the semantic fallback fills in thematic neighbors for posts whose")
         lines.append("  entities are all unique to themselves (short fiction, standalone projects).")
-        lines.append(f"- Is **{speedup:.0f}× faster** ({g_lat*1000:.0f} ms vs {v_lat*1000:.0f} ms)")
+        lines.append(f"- Is **{speedup:.0f}× faster** ({g_lat*1000:.1f} ms vs {v_lat*1000:.0f} ms)")
         lines.append("  because the graph traversal is a single SQL CTE over precomputed mentions,")
         lines.append("  while vanilla's fallback runs a fresh embedding call + vector scan per query.")
         lines.append("")
@@ -451,7 +453,7 @@ def _write_report(agg: dict, results: list[dict]):
         lines.append("blogs, or different domains will shift the numbers. Also note that the")
         lines.append("`related` comparison bundles **two** graphrag advantages — entity-graph")
         lines.append("traversal *and* a pgvector semantic fallback — against a **title-only**")
-        lines.append('vanilla, so part of the 0.50-vs-0.00 gap is "graph + semantic vs title",')
+        lines.append('vanilla, so part of the recall@5 / hit@5 gap is "graph + semantic vs title",')
         lines.append("not the entity graph in isolation. A fair component-isolating ablation")
         lines.append("(give vanilla the same seed-embedding fallback) is a tracked follow-up.")
         lines.append("The methodology is reproducible and we'd welcome pull requests extending it.")
@@ -474,7 +476,7 @@ def _write_report(agg: dict, results: list[dict]):
             lines.append(f"- **Related p@1**: nano {n_p1:.0%} vs korely-graphrag {g_p1:.0%} vs vanilla {v_p1:.0%}.")
             lines.append(f"- **Related r@5**: nano {n_r5:.0%} vs korely-graphrag {g_r5:.0%} vs vanilla {v_r5:.0%}.")
             lines.append(f"- **Related hit@5**: nano {n_h5:.0%} vs korely-graphrag {g_h5:.0%} vs vanilla {v_h5:.0%}.")
-            lines.append(f"- **Related latency**: nano {n_lat*1000:.0f} ms vs korely-graphrag {g_lat*1000:.0f} ms vs vanilla {v_lat*1000:.0f} ms.")
+            lines.append(f"- **Related latency**: nano {n_lat*1000:.0f} ms vs korely-graphrag {g_lat*1000:.1f} ms vs vanilla {v_lat*1000:.0f} ms.")
             lines.append("")
             lines.append("**Caveats on this comparison.**")
             lines.append("")
@@ -529,7 +531,7 @@ def _write_report(agg: dict, results: list[dict]):
     lines.append("docker compose up -d db")
     lines.append("# fetch Karpathy corpus")
     lines.append("git clone --depth 1 https://github.com/karpathy/karpathy.github.io /tmp/kb")
-    lines.append("mkdir -p benchmark/karpathy && cp /tmp/kb/_posts/*.markdown benchmark/karpathy/")
+    lines.append("mkdir -p benchmark/karpathy && cp /tmp/kb/_posts/*.md* benchmark/karpathy/   # *.md and *.markdown")
     lines.append("# ingest + 2-system benchmark (vanilla vs korely-graphrag)")
     lines.append("docker compose run --rm app korely-graphrag ingest --reset /app/benchmark/karpathy")
     lines.append("docker compose run --rm app python /app/benchmark/run_benchmark.py")

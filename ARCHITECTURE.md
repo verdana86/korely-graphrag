@@ -99,7 +99,7 @@ Key properties:
 - **Idempotent** — a file with unchanged `content_hash` is skipped.
 - **Three-layer dedup** — exact name, then substring (for person/org), then embedding cosine. In that order, cheapest first.
 - **One Gemini entity call per document** — not per chunk. We send the whole doc trimmed to 10k chars.
-- **Graceful degradation** — if the embed call fails for any reason, we fall back to name-only dedup (no semantic match attempted).
+- **Graceful degradation** — if the embed call fails, exact-name and (for person/org) substring dedup still apply, but no semantic match is attempted; any remaining new names are created as fresh entities.
 
 Files: [`src/korely_graphrag/ingest/pipeline.py`](src/korely_graphrag/ingest/pipeline.py), [`src/korely_graphrag/ingest/entity_extractor.py`](src/korely_graphrag/ingest/entity_extractor.py)
 
@@ -149,26 +149,37 @@ flowchart TD
     C --> D[For each remaining entity:<br/>find other items that mention it]
     D --> E[Weight each match<br/>src_imp * cand_imp * IDF]
     E --> F[Group by item, sum scores]
-    F --> G[Return top-N with shared entities]
+    F --> G[Return top-N<br/>graph + semantic fallback]
+    F -.->|graph yields < limit| H[pgvector cosine fills<br/>remaining slots<br/>source=semantic]
+    H --> G
 
     style B fill:#d6e9ff
     style C fill:#ffd6d6
     style E fill:#d6ffdd
+    style H fill:#fff3bf
 ```
 
-Two critical ideas:
+Three critical ideas:
 
 1. **Ubiquity hard filter.** An entity that appears in more than 50% of the
 corpus (e.g. the blog author across all posts, or a company name on every meeting note) is treated as structurally noisy and dropped before
-the traversal. This is a defense-in-depth check.
+the traversal — with a floor of 2 documents, so tiny corpora aren't
+over-filtered (`doc_count <= GREATEST(2, 0.5 * N)`). A defense-in-depth check.
 
 2. **IDF weighting on the score.** Instead of counting each shared entity
 equally, each is weighted by `log(N / doc_freq)`. An entity in 6/24 docs
 contributes `log(4) ≈ 1.39`; an entity in 1/24 docs contributes
 `log(24) ≈ 3.18`. Rare shared entities dominate the score, as they should.
 
-Implementation: one SQL CTE chain, no Python-side iteration. Runs in ~7ms
-on a 24-doc corpus (vs ~450ms for a naive "search by title" fallback).
+3. **Semantic fallback.** When the entity graph returns fewer than `limit`
+items (an "island" note whose entities are all unique to it), the remaining
+slots are filled by pgvector cosine on the item embeddings, tagged
+`source="semantic"` with empty `shared_entities`. So a result can mix
+graph-linked and semantic-linked hits — see `RelatedHit.source` in
+`search/graph.py`.
+
+Implementation: one indexed SQL CTE chain for the graph path, no Python-side
+iteration — plus the pgvector fallback above when the graph is sparse.
 
 File: [`src/korely_graphrag/search/graph.py`](src/korely_graphrag/search/graph.py)
 
@@ -197,8 +208,9 @@ File: [`src/korely_graphrag/mcp_server/server.py`](src/korely_graphrag/mcp_serve
 ## Provider abstraction
 
 LLM + embedding calls go through a small abstract layer so we can swap
-providers without touching pipelines. Day 1: Gemini only. Ollama is on
-the roadmap.
+providers without touching pipelines. Today it ships with Gemini only; the
+layer is abstracted so another backend (including a local one) could be
+dropped in without touching the pipelines.
 
 ```mermaid
 classDiagram
@@ -239,10 +251,11 @@ dedup heuristics, tsquery sanitization) and Postgres integration tests
 (schema, hybrid search, graph traversal, MCP tool results, full ingest
 pipeline with a fake provider).
 
-See [`tests/`](tests/) — in particular `test_fixes.py` for the three
-quality fixes described in the commit log (hub-node filter, semantic
-dedup, title extraction robustness) and the round-2 IDF + substring
-additions.
+See [`tests/`](tests/) — in particular `test_fixes.py`: the hub-node filter
+floor (`test_hub_filter_floor_protects_tiny_corpora`), semantic dedup
+(`test_semantic_dedup_merges_close_entity_names`), title-extraction
+robustness (`test_title_*`), and the IDF + substring-dedup additions
+(`test_idf_weighting_demotes_semi_ubiquitous_entities`, `test_substring_dedup_*`).
 
 ---
 
