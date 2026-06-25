@@ -6,7 +6,7 @@
 [![MCP](https://img.shields.io/badge/MCP-native-8A2BE2.svg)](https://modelcontextprotocol.io/)
 [![Gemini](https://img.shields.io/badge/LLM-Gemini-4285F4.svg)](https://ai.google.dev/)
 
-> The open entity-graph retrieval engine behind [Korely](https://korely.ai) for your markdown notes — *related*-note lookups that beat nano-graphrag and run **59× faster** than plain vector RAG, served over MCP. The hosted memory layer built on it answers **76% vs 42%** at an equal token budget on [LongMemEval](token-savings/).
+> The open entity-graph retrieval engine behind [Korely](https://korely.ai) for your markdown notes — *related*-note lookups that beat nano-graphrag on quality and plain vector RAG on speed (**59×**), served over MCP. The hosted memory layer built on it answers **76% vs 42%** at an equal token budget on [LongMemEval](token-savings/).
 
 **Status:** Apache 2.0 · reproducible benchmarks included · early preview, single-user, CLI-first
 
