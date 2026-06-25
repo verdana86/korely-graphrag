@@ -19,17 +19,17 @@ Two measurements live here, and the order is deliberate:
 
 Same reader, same prompt, same per-question token budget; only the memory block differs. A neutral, question-type-aware judge (LongMemEval-style) scores each answer against the gold. **The same reader and the same judge grade both conditions, so any model or judge bias cancels in the delta.**
 
-| question type | N | Korely block | recency window | delta |
+| question type | N | full history (~5,500 tok) | Korely block (~1,900) | recency window (~1,900) |
 |---|---:|---:|---:|---:|
-| temporal-reasoning | 20 | **80%** | 10% | **+70** |
-| multi-session | 20 | **50%** | 5% | **+45** |
-| single-session-user | 20 | **70%** | 25% | **+45** |
-| knowledge-update | 78 | **87%** | 58% | **+29** |
-| single-session-preference | 20 | **40%** | 15% | **+25** |
-| single-session-assistant | 20 | 100% | 95% | +5 |
-| **all** | **178** | **76.4%** | **42.1%** | **+34.3** |
+| temporal-reasoning | 20 | 85% | **80%** | 10% |
+| multi-session | 20 | 70% | **50%** | 5% |
+| single-session-user | 20 | 90% | **70%** | 25% |
+| knowledge-update | 78 | 92% | **87%** | 58% |
+| single-session-preference | 20 | 40% | **40%** | 15% |
+| single-session-assistant | 20 | 100% | 100% | 95% |
+| **all** | **178** | **83.7%** | **76.4%** | **42.1%** |
 
-The gap is largest exactly where a memory layer is supposed to earn its keep: questions whose evidence lives in **old** sessions (temporal spans, facts stated many turns ago, cross-session counts). A recency window can't reach them — it answers "I don't know" or guesses. The gap is near-zero on short single-session chats, where the whole conversation already fits the budget and there is nothing to select. That row is reported, not hidden.
+Read across the three conditions: **at one-third the tokens, Korely keeps ~91% of the accuracy of sending the entire conversation (76.4% vs 83.7%), and nearly doubles a same-size recency window (42.1%).** The honest trade is real — Korely gives up ~7 points versus dumping everything, biggest on multi-session and single-session-user (the hardest to compress) — but it does so at a third of the cost and far above the obvious cheap alternative. The window can't reach evidence in **old** sessions (temporal spans, cross-session counts); it answers "I don't know" or guesses. On short single-session chats all three tie — the whole conversation already fits the budget, so there's nothing to select. Reported, not hidden.
 
 **Honest scope.** This is judge-based, so unlike the token math it is not bit-deterministic: the reader and judge were both `gemini-2.5-flash` at temperature 0. The *delta* is robust to the judge because both conditions are graded identically. The recency baseline is the fairest we could build — the most recent **complete** turns that fit the same token budget as Korely's block (never mid-turn; 0 empty contexts across 178). Every per-answer judgement ships in [`results/accuracy.jsonl`](results/accuracy.jsonl) so you can audit or re-grade it.
 
