@@ -1,20 +1,60 @@
-# Token efficiency on LongMemEval
+# Memory on LongMemEval: selection beats recency at equal budget
 
-**How many input tokens does an agent spend to answer, with and without a memory layer?**
+**At an equal token budget, does a memory layer's *selected* context answer better than just keeping the most recent turns?**
 
-On the public [LongMemEval](https://arxiv.org/abs/2410.10813) benchmark (oracle split, 178 questions across 6 question types), answering each question from **Korely's `get_context()` block** instead of re-sending the **full conversation history** cuts input tokens by
+On the public [LongMemEval](https://arxiv.org/abs/2410.10813) benchmark (oracle split, 178 questions, 6 types), we give a reader LLM Korely's `get_context()` block versus a recency window **of the same token size**, and judge both answers against the gold:
 
-> ## 66% overall (median 62% per question).
+> ## 76% correct vs 42% — same token budget, 1.8× the answers right.
 
-You pay per input token, so this is a measured, reproducible cut to the bill. Everything here is **deterministic and verifiable with no API key and no LLM call**: it reads the run transcripts (Korely's block was logged at run time) and the public dataset, and counts tokens with a standard tokenizer. Don't trust us, run [`scripts/analyze.py`](scripts/analyze.py).
+Two measurements live here, and the order is deliberate:
 
-**Read this first.** This measures **token efficiency** (objective). It is measured against a deliberately naive baseline: an agent that re-sends the entire conversation on every turn. It does **not** measure answer accuracy (whether the compressed block is enough to answer correctly), which needs a neutral LLM judge and is out of scope here.
+1. **Accuracy at equal budget — the result that matters.** Same budget, only the memory strategy differs: Korely's selection answers **76.4%** of questions correctly vs **42.1%** for a recency window (**+34 pts**), biggest where the evidence isn't recent (temporal +70, multi-session +45). Needs any LLM (~$0.30 to reproduce).
+2. **Token efficiency — the supporting number.** Korely's block is ~1,900 tokens. Versus re-sending the **entire** history that's **66% fewer**; but versus an equal-budget recency window it's a **wash (−0.7%)**. Bounding context is cheap — any truncation does it. Deterministic, no API key.
+
+**The honest takeaway:** the win is not *fewer* tokens — a recency window ties on that. It's *which* tokens: the **selected** block answers far more often at the same cost. The 66% is real but it's "bounded vs unbounded"; the 76%-vs-42% is the part that's actually hard.
+
+---
+
+## Accuracy at equal budget
+
+Same reader, same prompt, same per-question token budget; only the memory block differs. A neutral, question-type-aware judge (LongMemEval-style) scores each answer against the gold. **The same reader and the same judge grade both conditions, so any model or judge bias cancels in the delta.**
+
+| question type | N | Korely block | recency window | delta |
+|---|---:|---:|---:|---:|
+| temporal-reasoning | 20 | **80%** | 10% | **+70** |
+| multi-session | 20 | **50%** | 5% | **+45** |
+| single-session-user | 20 | **70%** | 25% | **+45** |
+| knowledge-update | 78 | **87%** | 58% | **+29** |
+| single-session-preference | 20 | **40%** | 15% | **+25** |
+| single-session-assistant | 20 | 100% | 95% | +5 |
+| **all** | **178** | **76.4%** | **42.1%** | **+34.3** |
+
+The gap is largest exactly where a memory layer is supposed to earn its keep: questions whose evidence lives in **old** sessions (temporal spans, facts stated many turns ago, cross-session counts). A recency window can't reach them — it answers "I don't know" or guesses. The gap is near-zero on short single-session chats, where the whole conversation already fits the budget and there is nothing to select. That row is reported, not hidden.
+
+**Honest scope.** This is judge-based, so unlike the token math it is not bit-deterministic: the reader and judge were both `gemini-2.5-flash` at temperature 0. The *delta* is robust to the judge because both conditions are graded identically. The recency baseline is the fairest we could build — the most recent **complete** turns that fit the same token budget as Korely's block (never mid-turn; 0 empty contexts across 178). Every per-answer judgement ships in [`results/accuracy.jsonl`](results/accuracy.jsonl) so you can audit or re-grade it.
+
+```bash
+cd token-savings
+pip3 install google-generativeai tiktoken huggingface_hub
+export GEMINI_API_KEY=...          # any Gemini key; ~$0.30 for the full 178
+python3 scripts/accuracy.py
+```
+
+---
+
+## Token efficiency
+
+This is the supporting number (the headline above is accuracy). It measures **input tokens only**, is fully **deterministic** and needs **no API key and no LLM call**: it reads the published run transcripts (Korely's block was logged at run time) and the public dataset, and counts tokens with a standard tokenizer. Run [`scripts/analyze.py`](scripts/analyze.py).
+
+It is measured against a deliberately naive baseline: an agent that re-sends the entire conversation every turn. A real memory-less agent would keep a recency window instead — and against an **equal-budget** window the token saving disappears (see [Against a fair baseline](#against-a-fair-baseline-equal-token-budget) below). On its own it does **not** measure answer accuracy — that is the section above.
 
 ## Contents
 
-- [Introduction — the question, and why we measured it this way](#introduction)
+- [**Accuracy at equal budget** — the result that matters](#accuracy-at-equal-budget)
+- [**Token efficiency** — the supporting number](#token-efficiency)
 - [Dashboard](#dashboard)
-- [Result](#result)
+- [Result (token table)](#result)
+- [Against a fair baseline (equal token budget)](#against-a-fair-baseline-equal-token-budget)
 - [What "evidence retained" means (and what it does not)](#what-evidence-retained-means-and-what-it-does-not)
 - [What is being measured](#what-is-being-measured)
 - [Methodology and honest scope](#methodology--honest-scope)
@@ -28,7 +68,7 @@ An agent with no memory layer answers each turn by carrying its whole history in
 
 **The question.** For a fixed set of real questions over long, multi-session chat histories, how many input tokens does an agent spend to answer (a) by re-sending the full conversation, versus (b) by reading Korely's `get_context()` block instead?
 
-**Why tokens and not an accuracy score.** Accuracy needs an LLM judge, and a judge is a moving, arguable part. Token counts are not: same prompt template, same tokenizer, count both sides, report the ratio. Anyone can rerun the arithmetic from the published transcripts with no API key and no model. We wanted the headline number to be the one nobody has to take on trust.
+**Why a judge-free token number too.** Answer accuracy (the headline above) needs an LLM judge, and a judge is a moving, arguable part. Token counts are not: same prompt template, same tokenizer, count both sides, report the ratio. Anyone can rerun the arithmetic from the published transcripts with no API key and no model. So we keep both — the judged accuracy result that matters, and this judge-free token number nobody has to take on trust.
 
 **The choices we made, and why:**
 
@@ -67,13 +107,25 @@ Headline reductions, three ways, so the question mix isn't doing silent work: **
 
 **The −9% row is reported, not hidden.** On `single-session-assistant` the whole conversation is ~1,080 tokens, already smaller than the ~2,000-token block, so memory adds overhead instead of saving. In total **20 of 178** questions cost more with Korely (19 of them single-session-assistant). The saving appears, and grows, where memory is meant to help: long histories (multi-session: 82%).
 
+## Against a fair baseline (equal token budget)
+
+The 66% above is against re-sending the **entire** history. A real memory-less agent would keep a recency window. So the honest question: at an *equal* token budget, how much does Korely's block actually save versus keeping the most recent turns? Run [`scripts/baselines.py`](scripts/baselines.py):
+
+| baseline (the context a memory-less agent carries) | Korely token reduction |
+|---|---:|
+| full history (every turn) — *the 66% baseline* | **66%** |
+| recency window, 2× Korely's budget (~4000 tok) | 47% |
+| recency window, **equal budget** (matched per question) | **−0.7%** — a wash |
+
+At equal budget the token saving is gone (Korely uses the same, slightly more on 176/178). That is honest and expected: **the 66% is "a bounded block vs unbounded history", which any truncation achieves.** Bounding context is not the contribution — *selecting* it is. Which is why the headline of this page is the [accuracy result](#accuracy-at-equal-budget), not this one.
+
 ## What "evidence retained" means (and what it does not)
 
 For every question, Korely's block keeps **at least one** of the question's gold answer-evidence turns (100% on all 178 — call it the floor). But on average it keeps only **47% of the gold-evidence turns** (median 38%): the block is a **compression** of the history, not a copy. That is the whole point of a memory layer.
 
 Two honest consequences:
 - **This is not a recall@k leaderboard number.** Korely's block embeds verbatim conversation turns under a "Relevant memories" header, so a substring "did a gold turn survive" test passes easily by construction. We report it as an evidence-retention floor, not as a discriminating retrieval score.
-- **It says nothing about answer correctness.** Whether the 47%-retained, compressed block is *sufficient* to answer is the accuracy question, which needs a neutral judge and is **not** claimed here.
+- **It says nothing about answer correctness by itself.** Whether the 47%-retained, compressed block is *sufficient* to answer is the accuracy question — measured directly in [Accuracy at equal budget](#accuracy-at-equal-budget) above (76% vs 42%). Retention here is only a floor, not the quality measure.
 
 ## What is being measured
 
@@ -99,7 +151,7 @@ We tokenize **both** prompts with the same tokenizer and report the reduction.
 - **Question mix.** `knowledge-update` is a full census (78/78). The other five axes are 20-question subsamples of a larger pool, and the `multi-session` 20 skew toward larger histories (which lifts that axis's 82%). The **overall** number is robust to this: pooled 66%, per-question median 62%, dataset-re-weighted 60%.
 - **Tokenizer.** `tiktoken o200k_base` for both conditions, so the **ratio** is apples-to-apples. The actual reader was Llama-3.3-70B (different tokenizer); we expect the ratio to be broadly tokenizer-insensitive but have not measured the spread, so treat exact percentages as ±a few points.
 - **Soft budget.** The block targets ~2,000 tokens but is not hard-capped: **65 of 178** blocks exceed it (max 2,566). It is a soft target; the reduction holds regardless. A larger budget would trivially raise evidence retention and lower the reduction, so the 66% / 47% pair is one point on a budget tradeoff, not a tuned sweet spot.
-- **Objective, no judge.** Token counts and evidence retention need no LLM. **Answer accuracy** (% correct, judged) is a separate, judge-dependent metric and is **not** claimed here.
+- **Objective, no judge (this section).** Token counts and evidence retention need no LLM. **Answer accuracy** (% correct, judged) is the separate, judge-dependent metric measured in [Accuracy at equal budget](#accuracy-at-equal-budget) above.
 - **Source data.** `data/korely_longmemeval_oracle.jsonl` is one row per question; `retrieved_context` is Korely's actual `get_context()` output, logged verbatim.
 
 ## Reproduce it

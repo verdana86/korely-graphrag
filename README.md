@@ -12,7 +12,7 @@
 
 ### The one number
 
-On the public **LongMemEval** benchmark, answering from Korely's memory block instead of re-sending the full chat history cuts input tokens by **66%** (pooled; 62% median per question; up to 82% on the long-context tasks). It is deterministic — no LLM, no judge — and you can **reproduce it in 30 seconds with no API key**: see [token-savings/](token-savings/).
+On the public **LongMemEval** benchmark, at an **equal token budget**, answering from Korely's selected memory block answers **76% of questions correctly versus 42%** for a same-size recency window — *same cost, 1.8× the answers right*. (The block is also **66% smaller** than re-sending the whole history, but that's just truncation; the point is *which* tokens — the selected ones answer far more often.) Both reproduce from this repo: [token-savings/](token-savings/).
 
 ---
 
@@ -23,7 +23,7 @@ This repo is two things in one place: the open-source retrieval engine that powe
 | If you want... | Go here |
 |---|---|
 | To run it on your own markdown notes | [Quickstart](#quickstart) |
-| The **token-efficiency** result (66% fewer input tokens, up to 82% on long-context, reproducible with no API key) | [token-savings/](token-savings/) |
+| The **memory-quality** result: 76% vs 42% correct at equal token budget (plus 66% fewer tokens vs full history) | [token-savings/](token-savings/) |
 | The **retrieval** result (entity graph vs vanilla RAG, p@1 0.50 vs 0.00) | [BENCHMARK.md](BENCHMARK.md) |
 | To understand how it works inside (4 diagrams) | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | The 30-second pitch | [What it is](#what-it-is) |
@@ -33,7 +33,7 @@ This repo is two things in one place: the open-source retrieval engine that powe
 ```
 korely-graphrag/
 ├── src/korely_graphrag/   the engine: chunk + embed + entity-extract + hybrid search, served over MCP
-├── token-savings/         token-efficiency benchmark on LongMemEval (dashboards, data, results, $0 to verify)
+├── token-savings/         memory-quality + token benchmarks on LongMemEval (dashboards, data, results)
 ├── benchmark/             retrieval benchmark: entity graph vs vanilla RAG vs nano-graphrag (corpus + scripts)
 ├── tests/                 pytest suite — 49 tests (30 need a live Postgres; 19 run standalone)
 ├── docs/images/           demo screenshots used below
@@ -53,7 +53,7 @@ Plug it into Claude Code, Cursor, Claude Desktop, or any MCP client and ask ques
 
 ## Benchmarks
 
-- **[Token efficiency on LongMemEval](token-savings/)**: answering from Korely's memory block instead of re-sending the full conversation uses **66% fewer input tokens** (62% median per question, up to 82% on long-context tasks), reproducible with no API key. Includes an animated dashboard and the raw per-question data.
+- **[Memory quality on LongMemEval](token-savings/)**: at an equal token budget, Korely's selected block answers **76% of questions correctly vs 42%** for a same-size recency window (**+34 points**); the block is also **66% smaller** than re-sending the full history. Animated dashboard, raw per-question data, and judge transcripts included.
 - **[Retrieval vs vanilla RAG and nano-graphrag](BENCHMARK.md)**: the entity-graph retrieval benchmark.
 
 ## Demo
