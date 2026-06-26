@@ -186,8 +186,61 @@ def _call(model, prompt, cfg, retries=8):
     return ""
 
 
+# ── Reader-mode levers (M3/M4). Applied IDENTICALLY to both arms (Korely block
+# + recency window) so the delta stays fair — only the reading STRATEGY changes.
+# generic = the published PROMPT_PRE (analyze.py). con = Chain-of-Note (Yu 2023,
+# LongMemEval 2410.10813: GPT-4o oracle 87->92.4). commit = anti-abstention
+# calibration (recover GPT-4o's false refusals). con+commit = both.
+PROMPT_CON = (
+    "Answer the question using ONLY the memory context below.\n"
+    "First, for each relevant memory item, write a one-line NOTE: the fact and its date "
+    "(or write SKIP if the item is irrelevant). Then, after the notes, write the final answer "
+    "on a new line starting EXACTLY with 'ANSWER:'. Keep it short and direct. "
+    "If a fact changed over time, use the note with the MOST RECENT date. "
+    'If the answer is not in the context, the final line must be exactly \'ANSWER: I don\'t know\'.\n\n'
+    "Memory context:\n"
+)
+PROMPT_COMMIT = (
+    "Answer the question using ONLY the memory context below. Give a short, direct answer. "
+    "If a fact changed over time, answer with the MOST RECENT value. "
+    "If any passage in the context bears on the question, ANSWER IT even if you are not fully "
+    'certain. Reply exactly "I don\'t know" ONLY when NOTHING in the context relates to the '
+    "question.\n\nMemory context:\n"
+)
+PROMPT_CONCOMMIT = (
+    "Answer the question using ONLY the memory context below.\n"
+    "First, for each relevant memory item, write a one-line NOTE: the fact and its date "
+    "(or SKIP if irrelevant). Then write the final answer on a new line starting EXACTLY with "
+    "'ANSWER:'. If a fact changed over time, use the note with the MOST RECENT date. "
+    "If any note bears on the question, COMMIT to an answer even if not fully certain; "
+    "use 'ANSWER: I don't know' ONLY when NOTHING in the context relates.\n\n"
+    "Memory context:\n"
+)
+_PROMPTS = {"con": PROMPT_CON, "commit": PROMPT_COMMIT, "con+commit": PROMPT_CONCOMMIT}
+READER_MODE = "generic"
+
+
+def _reader_pre():
+    return _PROMPTS.get(READER_MODE, PROMPT_PRE)
+
+
+def final_answer(text: str) -> str:
+    """For Chain-of-Note modes the reader emits notes then 'ANSWER: ...'. The judge
+    must grade the final answer, not the notes — take the text after the last
+    'ANSWER:' (fallback to the whole output for generic/commit)."""
+    m = re.split(r"(?is)\banswer:\s*", text or "")
+    return (m[-1] if len(m) > 1 else (text or "")).strip()
+
+
 def reader(model, context, question):
-    return _call(model, PROMPT_PRE + context + f"\n\nQuestion: {question}\nAnswer:", READER_TEMP)
+    cfg = dict(READER_TEMP)
+    if "con" in READER_MODE:
+        # Chain-of-Note writes one note PER memory item (blocks here carry up to
+        # 30 facts + turns) AND Gemini-2.5-flash is a thinking model whose reasoning
+        # tokens also count here. 768 truncated mid-notes before 'ANSWER:' (verified
+        # regression artifact). Give ample room so the final answer always lands.
+        cfg = {**cfg, "max_output_tokens": 4096}
+    return _call(model, _reader_pre() + context + f"\n\nQuestion: {question}\nAnswer:", cfg)
 
 
 def judge(model, q, gold, ans, qtype, is_abs):
@@ -213,13 +266,14 @@ def process(item, ctx, model_name):
 
     ans_k = reader(rm, ctx, q)
     ans_w = reader(rm, window, q)
-    corr_k = judge(rm, q, gold, ans_k, qtype, is_abs)
-    corr_w = judge(rm, q, gold, ans_w, qtype, is_abs)
+    # Chain-of-Note emits notes + 'ANSWER:'; judge the final answer, not the notes.
+    corr_k = judge(rm, q, gold, final_answer(ans_k), qtype, is_abs)
+    corr_w = judge(rm, q, gold, final_answer(ans_w), qtype, is_abs)
     return {
         "qid": item["_qid"], "axis": qtype, "is_abstention": is_abs,
         "gold": gold, "korely_answer": ans_k, "window_answer": ans_w,
         "korely_correct": corr_k, "window_correct": corr_w,
-        "budget_tokens": block_n,
+        "budget_tokens": block_n, "reader_mode": READER_MODE,
     }
 
 
@@ -231,7 +285,14 @@ def main():
     ap.add_argument("--model", default="gemini-2.5-flash")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--reader-mode", default="generic",
+                    choices=["generic", "con", "commit", "con+commit"])
     args = ap.parse_args()
+
+    global READER_MODE
+    READER_MODE = args.reader_mode
+    if READER_MODE != "generic":
+        print(f"Reader mode: {READER_MODE}", flush=True)
 
     configure_provider(args.model)
     by_qid = load_dataset(args.dataset)

@@ -51,13 +51,29 @@ def korely_key() -> str:
     sys.exit("Set KORELY_API_KEY (get a free key at korely.ai/agents)")
 
 
-def _req(method: str, url: str, body=None):
+def _req(method: str, url: str, body=None, *, retries: int = 6):
+    """Single request with exponential backoff on 429 (rate-limit). A 403
+    agent_cap_exceeded is FATAL (no point retrying) and aborts with a clear
+    message — raise the account's write rate-limit / agent cap and re-run."""
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(
-        url, data=data, method=method,
-        headers={"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return r.status, json.loads(r.read() or "null")
+    for attempt in range(retries):
+        req = urllib.request.Request(
+            url, data=data, method=method,
+            headers={"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return r.status, json.loads(r.read() or "null")
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < retries - 1:
+                ra = e.headers.get("Retry-After")
+                wait = float(ra) if (ra and ra.isdigit()) else min(2 ** attempt + 0.5, 30)
+                time.sleep(wait)
+                continue
+            if e.code == 403:
+                body_txt = (e.read() or b"")[:200].decode(errors="replace")
+                sys.exit(f"\n403 from Korely (account limit): {body_txt}\n"
+                         f"=> raise the account's agent cap / write rate-limit, then re-run.")
+            raise
 
 
 def iso_event_time(date: str):

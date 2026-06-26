@@ -125,6 +125,29 @@ python3 scripts/stats.py                # significance: McNemar + 95% CIs  (no k
 
 ---
 
+## Where the misses go — and what a second judge says
+
+The 76.4% leaves 42 of 178 wrong. Before claiming the memory is the limit, we classified **every one** of those misses against the per-answer data — no model, $0, deterministic ([`scripts/error_taxonomy.py`](scripts/error_taxonomy.py)):
+
+| bucket | count | meaning |
+|---|---:|---|
+| **retrieval miss** (gold evidence absent from the block) | **0** | the memory never lost the answer |
+| over-abstention (evidence present, reader said "I don't know") | 18 | reader |
+| reader miss (evidence present, reader answered wrong) | 20 | reader |
+| abstention fail (an _abs question the reader didn't decline) | 1 | reader |
+| judge-suspect (the answer contains the gold, yet graded wrong) | 3 | judge |
+
+**Zero of the 42 misses are a retrieval failure.** On this split the right memories are always in the block, so every miss is the reader model or the grader — never the memory. (A full-history cross-check bounds what a perfect reader could recover at +16 of those, capped by the 83.1% ceiling.) That is the same conclusion the recall column reaches from the other direction, now confirmed answer-by-answer.
+
+**Judge sensitivity — the mirror of reader sensitivity.** The 3 judge-suspects are answers a strict grader rejected on a technicality (`"a sports store downtown"` vs the gold `"the sports store downtown"`; `"Serenity Yoga and at home"`, which *contains* the gold `"Serenity Yoga"`). Re-grading just those three with a **second, independent judge** (`gpt-4o`) flips **all three** to correct: **76.4% → 78.1%**. So the absolute moves with the *judge* too, not only the [reader](#reader-sensitivity-the-absolute-moves-the-delta-holds) — the Gemini-judged 76.4% is a conservative floor. The delta is what survives both. Reproduce with your own OpenAI key:
+
+```bash
+python3 scripts/error_taxonomy.py            # the table above, $0, no key
+python3 scripts/error_taxonomy.py --rejudge  # re-grade the suspects with gpt-4o -> 78.1
+```
+
+---
+
 ## Token efficiency
 
 This is the supporting number (the headline above is accuracy). It measures **input tokens only**, is fully **deterministic** and needs **no API key and no LLM call**: it reads the published run transcripts (Korely's block was logged at run time) and the public dataset, and counts tokens with a standard tokenizer. Run [`scripts/analyze.py`](scripts/analyze.py).
