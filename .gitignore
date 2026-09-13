@@ -36,4 +36,10 @@ benchmark/REPORT.generated.md
 # benchmark/nano_predictions.jsonl. Do NOT re-ignore them.
 
 # Local reproduction outputs (regenerate via token-savings/scripts/reproduce.py)
-/results/
+#
+# Senza barra iniziale: la regola vale a qualunque profondita'. Con `/results/`
+# valeva solo alla radice, e gli output veri finiscono in
+# `token-savings/results/`, quindi 1,8 MB di risultati rigenerabili restavano
+# fermi in "non tracciati" per sempre. Un git status che ha sempre dieci righe
+# di rumore e' un git status che non si legge piu'.
+results/
